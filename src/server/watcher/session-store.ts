@@ -6,6 +6,18 @@ import type { PlanLimits, StatuslineReport } from '../live/statusline.js'
 /** A session with no activity for this long is no longer "active". */
 export const ACTIVE_WINDOW_MS = 5 * 60 * 1000
 
+/**
+ * Entries retained per session. Startup backfill is capped at 1 MB per file, but
+ * tailing afterwards had no cap at all: measured against the real corpus, session
+ * state grew ~28 MB per day and was never freed, because a session that ends is
+ * only flagged, never dropped.
+ *
+ * The oldest entries go first and the session is marked truncated, which the UI
+ * already renders as "partial history". Usage totals are unaffected — the
+ * accumulator folds each entry as it arrives and never revisits the array.
+ */
+export const MAX_RETAINED_ENTRIES = 4000
+
 interface SessionState {
   entries: TranscriptEntry[]
   lastStatus: SessionStatus | null
@@ -48,6 +60,11 @@ function deriveStatus(state: SessionState, fresh: boolean): SessionStatus {
   return fresh ? 'active' : 'idle'
 }
 
+/** Everything about a live process that a client would render. */
+function signature(p: LiveProcess | null): string {
+  return p === null ? '' : JSON.stringify(p)
+}
+
 export class SessionStore {
   #sessions = new Map<string, SessionState>()
   /** Account-wide, not per session: the 5h and 7d plan windows. */
@@ -84,6 +101,12 @@ export class SessionStore {
       state.entries.push(e)
       state.usage.add(e)
     }
+    if (state.entries.length > MAX_RETAINED_ENTRIES) {
+      const dropped = state.entries.splice(0, state.entries.length - MAX_RETAINED_ENTRIES)
+      for (const e of dropped) state.seen.delete(e.uuid)
+      state.historyTruncated = true
+    }
+
     const summary = this.#summarize(sessionId, state)
     state.lastStatus = summary.status
     return summary
@@ -137,8 +160,9 @@ export class SessionStore {
         state.ended = false
       }
       const summary = this.#summarize(id, state)
-      const same = before?.state === after?.state
-        && (before === null) === (after === null)
+      // Compare the whole process, not just its state: waitingFor changing from
+      // "permission" to "your answer" is exactly what the user needs to see.
+      const same = signature(before) === signature(after)
         && state.lastStatus === summary.status
       state.lastStatus = summary.status
       if (!same) changed.push(summary)

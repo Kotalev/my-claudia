@@ -10,6 +10,14 @@ const POLL_MS = 30_000
 /** The CLI is another program on the user's machine; it must never hang the dashboard. */
 const CALL_TIMEOUT_MS = 5_000
 
+/**
+ * How many consecutive failures before we stop claiming to know what is running.
+ * Keeping the last good answer smooths over one hiccup; keeping it forever pins
+ * finished agents in the Live band with an animated dot and a growing elapsed
+ * time, which is a lie the user cannot see through.
+ */
+const MAX_STALE_POLLS = 3
+
 function asString(v: unknown): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null
 }
@@ -51,7 +59,7 @@ export function parseAgentsJson(raw: string): LiveProcess[] {
       version: null,
       startedAt: typeof o.startedAt === 'number' && Number.isFinite(o.startedAt)
         ? new Date(o.startedAt).toISOString()
-        : new Date(0).toISOString(),
+        : null,
       state: stateOf(o),
       waitingFor: asString(o.waitingFor),
     })
@@ -70,6 +78,8 @@ export function parseAgentsJson(raw: string): LiveProcess[] {
 export class AgentsPoller extends EventEmitter {
   #timer: NodeJS.Timeout | null = null
   #agents: LiveProcess[] = []
+  #failures = 0
+  #stopped = false
 
   constructor(private readonly bin: string = 'claude') { super() }
 
@@ -77,13 +87,22 @@ export class AgentsPoller extends EventEmitter {
     return this.#agents
   }
 
+  /** Whether the repeating poll is armed. Exists so a test can prove it is not. */
+  pollingStarted(): boolean {
+    return this.#timer !== null
+  }
+
   async start(): Promise<void> {
     await this.poll()
+    // stop() may have been called while that first poll was in flight; setting
+    // the interval anyway would leave it running for the life of the process.
+    if (this.#stopped) return
     this.#timer = setInterval(() => { void this.poll() }, POLL_MS)
     this.#timer.unref()   // a poll must never be the reason the process stays up
   }
 
   stop(): void {
+    this.#stopped = true
     if (this.#timer) clearInterval(this.#timer)
     this.#timer = null
   }
@@ -97,8 +116,15 @@ export class AgentsPoller extends EventEmitter {
         shell: false,
       }))
     } catch {
-      return this.#agents   // keep the last good answer rather than blanking the UI
+      this.#failures++
+      if (this.#failures < MAX_STALE_POLLS) return this.#agents   // ride out one hiccup
+      if (this.#agents.length > 0) {
+        this.#agents = []
+        this.emit('change', this.#agents)
+      }
+      return this.#agents
     }
+    this.#failures = 0
     this.#agents = parseAgentsJson(stdout)
     this.emit('change', this.#agents)
     return this.#agents

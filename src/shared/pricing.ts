@@ -99,9 +99,18 @@ function priceBucket(bucket: RateBucket): { usd: number; withoutCacheUsd: number
 
   // Price the two cache buckets, never the flat sum: it is their total, and
   // charging it as well would bill every cached token twice.
+  //
+  // Older transcript lines carry only that flat total and no split at all. Those
+  // tokens are charged at the 5m rate — Claude Code's default, and the only
+  // alternative is charging nothing, which made whole sessions look free and
+  // turned the no-caching comparison into nonsense.
+  const unsplitCreation = Math.max(
+    0,
+    t.cacheCreationInputTokens - t.cacheCreation5mInputTokens - t.cacheCreation1hInputTokens,
+  )
   const cached =
     t.inputTokens * input
-    + t.cacheCreation5mInputTokens * input * CACHE_WRITE_5M
+    + (t.cacheCreation5mInputTokens + unsplitCreation) * input * CACHE_WRITE_5M
     + t.cacheCreation1hInputTokens * input * CACHE_WRITE_1H
     + t.cacheReadInputTokens * input * CACHE_READ
     + t.outputTokens * output

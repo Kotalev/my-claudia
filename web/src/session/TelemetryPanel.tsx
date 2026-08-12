@@ -86,7 +86,8 @@ export function TelemetryPanel(
         <Cost usage={usage} />
         {reportedCostUsd !== null && (
           <p className="text-xs text-neutral-500">
-            {money(reportedCostUsd)} reported by Claude Code itself
+            {money(reportedCostUsd)} is Claude Code's own figure for this session —
+            also an estimate at list prices, and also not what a subscription is charged.
           </p>
         )}
       </div>

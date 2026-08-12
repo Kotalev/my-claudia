@@ -80,7 +80,8 @@ export interface LiveProcess {
   kind: LiveKind
   entrypoint: string | null
   version: string | null
-  startedAt: string
+  /** Null when the registry entry did not state one — not a reason to call it dead. */
+  startedAt: string | null
   state: LiveState
   /** What the session is waiting for, when Claude Code says. */
   waitingFor: string | null
@@ -126,6 +127,12 @@ export interface SessionUsage {
    */
   contextTokens: number | null
   contextAt: string | null
+  /**
+   * The model of that same main-thread turn. Not `models[last]`: a subagent on a
+   * 200k model would otherwise be used to size the main thread's 1M window, and
+   * the bar would read full at 300k.
+   */
+  contextModel: string | null
   /** Models seen, newest last. More than one means the session switched. */
   models: string[]
   /** Reasoning effort on the most recent turn that stated one. */

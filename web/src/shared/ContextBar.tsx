@@ -11,7 +11,7 @@ import { compactTokens, shortModel, agoLabel } from './usage-format.js'
 export function ContextBar(
   { usage, detailed = false }: { usage: SessionUsage; detailed?: boolean },
 ) {
-  const model = usage.models[usage.models.length - 1] ?? null
+  const model = usage.contextModel
   const fraction = occupancyFraction(usage.contextTokens, model)
   const window = contextWindowFor(model)
 

@@ -189,3 +189,19 @@ describe('isCountable', () => {
     expect(isCountable(assistant())).toBe(true)
   })
 })
+
+describe('UsageAccumulator — which model sizes the context window', () => {
+  it('uses the main thread model, not whichever model spoke last', () => {
+    // A subagent on a 200k model must not be used to size a 1M main thread.
+    const acc = new UsageAccumulator()
+    acc.add(assistant({ uuid: 'a', messageId: 'm1', model: 'claude-opus-5' }))
+    acc.add(assistant({ uuid: 'b', messageId: 'm2', model: 'claude-haiku-4-5', isSidechain: true }))
+    const snap = acc.snapshot()
+    expect(snap.contextModel).toBe('claude-opus-5')
+    expect(snap.models).toContain('claude-haiku-4-5')   // still counted for cost
+  })
+
+  it('has no context model before the first assistant turn', () => {
+    expect(new UsageAccumulator().snapshot().contextModel).toBeNull()
+  })
+})

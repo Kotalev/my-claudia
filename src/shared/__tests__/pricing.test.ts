@@ -82,6 +82,30 @@ describe('estimateCost', () => {
     expect(split.usd).toBeCloseTo(0.4 * 5 * 1.25, 6)
   })
 
+  it('charges cache writes that arrived without the 5m/1h split', () => {
+    // Older transcript lines carry only the flat total. Pricing only the split
+    // made those tokens free and the no-caching comparison larger than the real
+    // cost, which the UI rendered as an imaginary saving.
+    const c = estimateCost([bucket({ totals: totals({
+      cacheCreationInputTokens: 1_000_000,
+      cacheCreation5mInputTokens: 0, cacheCreation1hInputTokens: 0,
+    }) })])
+    expect(c.usd).toBeCloseTo(5 * 1.25, 6)
+    // Not zero, which is what pricing only the split produced.
+    expect(c.usd!).toBeGreaterThan(0)
+    // Writes alone cost 1.25x, so caching is dearer here than not caching. The
+    // panel only claims a saving when there is one.
+    expect(c.withoutCacheUsd!).toBeLessThan(c.usd!)
+  })
+
+  it('never charges an unsplit remainder twice when a partial split is present', () => {
+    const c = estimateCost([bucket({ totals: totals({
+      cacheCreationInputTokens: 1_000_000,
+      cacheCreation5mInputTokens: 600_000, cacheCreation1hInputTokens: 400_000,
+    }) })])
+    expect(c.usd).toBeCloseTo(0.6 * 5 * 1.25 + 0.4 * 5 * 2, 6)
+  })
+
   it('reports what caching saved', () => {
     const c = estimateCost([bucket({ totals: totals({
       cacheReadInputTokens: 1_000_000, cacheCreationInputTokens: 0,

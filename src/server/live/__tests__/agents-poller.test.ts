@@ -107,3 +107,39 @@ describe('AgentsPoller', () => {
     }
   })
 })
+
+describe('AgentsPoller — when the binary stops answering', () => {
+  it('gives up on the last good answer rather than pinning finished agents forever', async () => {
+    const poller = new AgentsPoller(FAKE)
+    expect(await poller.poll()).toHaveLength(2)
+    process.env.FAKE_AGENTS_MODE = 'crash'
+    try {
+      expect(await poller.poll()).toHaveLength(2)   // ride out one hiccup
+      expect(await poller.poll()).toHaveLength(2)
+      expect(await poller.poll()).toEqual([])       // three in a row: admit we do not know
+      expect(poller.list()).toEqual([])
+    } finally {
+      delete process.env.FAKE_AGENTS_MODE
+    }
+  })
+
+  it('recovers once the binary answers again', async () => {
+    const poller = new AgentsPoller(FAKE)
+    process.env.FAKE_AGENTS_MODE = 'crash'
+    try {
+      for (let i = 0; i < 4; i++) await poller.poll()
+    } finally {
+      delete process.env.FAKE_AGENTS_MODE
+    }
+    expect(await poller.poll()).toHaveLength(2)
+  })
+
+  it('does not leave an interval running when stopped mid-poll', async () => {
+    const poller = new AgentsPoller(FAKE)
+    const starting = poller.start()
+    poller.stop()
+    await starting
+    // A leaked interval would keep shelling out to `claude` for the process lifetime.
+    expect(poller.pollingStarted()).toBe(false)
+  })
+})

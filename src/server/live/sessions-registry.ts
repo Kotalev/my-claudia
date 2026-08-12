@@ -25,6 +25,13 @@ const PID_REUSE_TOLERANCE_MS = 120_000
 
 const DEBOUNCE_MS = 200
 
+/**
+ * Safety net. chokidar cannot watch a directory that does not exist yet, and on a
+ * fresh config dir it never will — so without this the Live band would report
+ * "nothing running" forever, however many sessions started.
+ */
+const RESCAN_MS = 15_000
+
 export function isSessionFile(name: string): boolean {
   return SESSION_FILE_RE.test(name)
 }
@@ -58,9 +65,11 @@ export function parseSessionFile(raw: string): LiveProcess | null {
   const pid = typeof o.pid === 'number' && Number.isInteger(o.pid) && o.pid > 0 ? o.pid : null
   if (sessionId === null || pid === null) return null
 
+  // Null rather than the epoch: an unusable startedAt means we cannot run the
+  // pid-reuse check, not that the process started in 1970 and must be dead.
   const startedAt = typeof o.startedAt === 'number' && Number.isFinite(o.startedAt)
     ? new Date(o.startedAt).toISOString()
-    : new Date(0).toISOString()
+    : null
 
   return {
     sessionId,
@@ -87,7 +96,12 @@ export async function processStartTimes(pids: number[]): Promise<Map<number, num
   if (pids.length === 0) return found
   let stdout: string
   try {
-    ;({ stdout } = await execFileAsync('ps', ['-o', 'pid=,lstart=', '-p', pids.join(',')]))
+    // LC_ALL=C: `ps` prints lstart in the current locale, and Date.parse returns
+    // NaN for a French or German month name — which would silently disable the
+    // pid-reuse guard rather than fail loudly.
+    ;({ stdout } = await execFileAsync('ps', ['-o', 'pid=,lstart=', '-p', pids.join(',')], {
+      env: { ...process.env, LC_ALL: 'C', LANG: 'C' },
+    }))
   } catch {
     return found   // no ps, or every pid gone: caller falls back to kill(pid, 0)
   }
@@ -115,6 +129,7 @@ export function isLive(proc: LiveProcess, starts: Map<number, number>): boolean 
   if (!pidAlive(proc.pid)) return false
   const started = starts.get(proc.pid)
   if (started === undefined) return true      // ps told us nothing; kill() said alive
+  if (proc.startedAt === null) return true    // no session start time to compare against
   return Math.abs(started - Date.parse(proc.startedAt)) <= PID_REUSE_TOLERANCE_MS
 }
 
@@ -126,6 +141,7 @@ export function isLive(proc: LiveProcess, starts: Map<number, number>): boolean 
 export class SessionsRegistry extends EventEmitter {
   #watcher: FSWatcher | null = null
   #timer: NodeJS.Timeout | null = null
+  #rescan: NodeJS.Timeout | null = null
   #live: LiveProcess[] = []
 
   constructor(private readonly dir: string = sessionsDir()) { super() }
@@ -138,17 +154,24 @@ export class SessionsRegistry extends EventEmitter {
     await this.refresh()
     // depth 0: the directory itself only. Watching files individually would miss
     // the ones created after start, and the key files must never be opened.
+    // A missing directory is normal on a fresh config dir; the rescan below is
+    // what makes the registry appear when Claude Code first creates it.
     this.#watcher = chokidar.watch(this.dir, { depth: 0, ignoreInitial: true })
     const poke = (): void => this.#schedule()
     this.#watcher.on('add', poke)
     this.#watcher.on('change', poke)
     this.#watcher.on('unlink', poke)
     await once(this.#watcher, 'ready')
+
+    this.#rescan = setInterval(() => { void this.refresh() }, RESCAN_MS)
+    this.#rescan.unref()
   }
 
   async stop(): Promise<void> {
     if (this.#timer) clearTimeout(this.#timer)
     this.#timer = null
+    if (this.#rescan) clearInterval(this.#rescan)
+    this.#rescan = null
     await this.#watcher?.close()
     this.#watcher = null
   }
@@ -173,8 +196,12 @@ export class SessionsRegistry extends EventEmitter {
       if (proc) parsed.push(proc)
     }
     const starts = await processStartTimes(parsed.map(p => p.pid).filter((p): p is number => p !== null))
-    this.#live = parsed.filter(p => isLive(p, starts))
-    this.emit('change', this.#live)
+    const live = parsed.filter(p => isLive(p, starts))
+    const changed = JSON.stringify(live) !== JSON.stringify(this.#live)
+    this.#live = live
+    // The rescan runs every 15s; emitting unchanged state would make the store
+    // recompute and rebroadcast every session for nothing.
+    if (changed) this.emit('change', this.#live)
     return this.#live
   }
 }

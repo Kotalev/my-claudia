@@ -42,6 +42,8 @@
 
 ## Progress log
 
+- 2026-08-12 13:50 — v2 review: 29 findings, 18 refuted, 11 fixed. Worst: cache writes priced at zero on the older usage shape.
+- 2026-08-12 13:48 — Retention capped at 4000 entries/session; state was growing ~28 MB/day with no eviction.
 - 2026-08-12 13:30 T-029 — Run cost and turn count captured from the result event instead of only rendered into text.
 - 2026-08-12 13:20 T-031 — SPEC section 8 written: process definition, status precedence, dedup rule, occupancy, cost and plan-limit policy.
 - 2026-08-12 13:15 T-030 — Statusline installed at project scope with passthrough; 66ms with the dashboard down, exit 0 on a broken passthrough.

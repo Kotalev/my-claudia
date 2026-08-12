@@ -41,7 +41,7 @@ function LiveRow(
           {session.sessionId.slice(0, 8)}
         </span>
         <span className="w-16 shrink-0 text-right text-xs text-neutral-500">
-          {elapsed(session.startedAt)}
+          {session.startedAt ? elapsed(session.startedAt) : ''}
         </span>
       </div>
 

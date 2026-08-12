@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { SessionStore } from '../session-store.js'
+import { SessionStore, MAX_RETAINED_ENTRIES } from '../session-store.js'
 import type { ParseStats } from '../../../transcript/types.js'
 import type { LiveProcess } from '../../../shared/types.js'
 import { makeEntry } from '../../../../test/helpers/entry.js'
@@ -226,5 +226,50 @@ describe('SessionStore — live processes', () => {
 
   it('handles an empty live set on an empty store', () => {
     expect(new SessionStore().setLive([])).toEqual([])
+  })
+})
+
+describe('SessionStore — bounded retention', () => {
+  it('keeps the newest entries and says so, rather than growing without limit', () => {
+    const store = new SessionStore()
+    const many = Array.from({ length: MAX_RETAINED_ENTRIES + 500 }, (_, i) =>
+      entry({ uuid: `u${i}`, timestamp: new Date(Date.parse('2026-08-12T10:00:00.000Z') + i * 1000).toISOString() }))
+    const summary = store.apply('s1', many, stats, null)
+
+    expect(store.entries('s1')).toHaveLength(MAX_RETAINED_ENTRIES)
+    expect(store.entries('s1')[0]!.uuid).toBe('u500')
+    expect(summary.historyTruncated).toBe(true)
+  })
+
+  it('does not truncate a session that fits', () => {
+    const store = new SessionStore()
+    const few = Array.from({ length: 10 }, (_, i) => entry({ uuid: `u${i}` }))
+    expect(store.apply('s1', few, stats, null).historyTruncated).toBe(false)
+  })
+
+  it('keeps usage totals intact across truncation', () => {
+    const store = new SessionStore()
+    const many = Array.from({ length: MAX_RETAINED_ENTRIES + 100 }, (_, i) =>
+      entry({
+        uuid: `u${i}`, messageId: `m${i}`, role: 'assistant', model: 'claude-opus-5',
+        usage: {
+          inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0,
+          cacheCreation5mInputTokens: 0, cacheCreation1hInputTokens: 0, thinkingTokens: null,
+          webSearchRequests: 0, webFetchRequests: 0, serviceTier: null, inferenceGeo: null, speed: null,
+        },
+      }))
+    const summary = store.apply('s1', many, stats, null)
+    // Dropped entries were already folded in; the totals must not shrink with them.
+    expect(summary.usage.total.messages).toBe(MAX_RETAINED_ENTRIES + 100)
+  })
+})
+
+describe('SessionStore — what counts as a live change', () => {
+  it('broadcasts when what the session is waiting for changes', () => {
+    const store = new SessionStore()
+    store.setLive([live({ state: 'waiting', waitingFor: 'permission to run Bash' })])
+    const changed = store.setLive([live({ state: 'waiting', waitingFor: 'your answer to a question' })])
+    expect(changed).toHaveLength(1)
+    expect(changed[0]!.live?.waitingFor).toBe('your answer to a question')
   })
 })

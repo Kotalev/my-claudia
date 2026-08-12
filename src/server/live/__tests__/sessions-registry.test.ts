@@ -92,9 +92,10 @@ describe('parseSessionFile', () => {
     expect(parseSessionFile(JSON.stringify({ pid: 1.5, sessionId: 's' }))).toBeNull()
   })
 
-  it('survives a garbage startedAt instead of producing an invalid date', () => {
-    const p = parseSessionFile(JSON.stringify({ pid: 1, sessionId: 's', startedAt: 'yesterday' }))
-    expect(p?.startedAt).toBe(new Date(0).toISOString())
+  it('reports no start time rather than inventing the epoch', () => {
+    // The epoch would fail the pid-reuse check and declare a running session dead.
+    expect(parseSessionFile(JSON.stringify({ pid: 1, sessionId: 's', startedAt: 'yesterday' }))?.startedAt).toBeNull()
+    expect(parseSessionFile(JSON.stringify({ pid: 1, sessionId: 's' }))?.startedAt).toBeNull()
   })
 })
 
@@ -148,6 +149,12 @@ describe('isLive', () => {
 
   it('falls back to kill(pid,0) when ps told us nothing', () => {
     expect(isLive(proc(), new Map())).toBe(true)
+  })
+
+  it('keeps a live process whose registry entry states no start time', async () => {
+    // Without this, a missing startedAt reads as 1970 and the reuse check kills it.
+    const starts = await processStartTimes([process.pid])
+    expect(isLive(proc({ startedAt: null }), starts)).toBe(true)
   })
 })
 

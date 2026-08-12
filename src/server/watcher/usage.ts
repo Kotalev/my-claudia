@@ -84,6 +84,7 @@ export class UsageAccumulator {
   #byRate = new Map<string, TokenTotals>()
   #contextTokens: number | null = null
   #contextAt: string | null = null
+  #contextModel: string | null = null
   #compactions = 0
 
   add(entry: TranscriptEntry): void {
@@ -100,6 +101,7 @@ export class UsageAccumulator {
     if (!entry.isSidechain && entry.role === 'assistant') {
       this.#contextTokens = contextTokensOf(entry.usage)
       this.#contextAt = entry.timestamp
+      this.#contextModel = entry.model
     }
 
     // A line with no message id cannot collide with another; its uuid is unique
@@ -139,6 +141,7 @@ export class UsageAccumulator {
       total,
       contextTokens: this.#contextTokens,
       contextAt: this.#contextAt,
+      contextModel: this.#contextModel,
       models: [...this.#models],
       effort: this.#effort,
       compactions: this.#compactions,
