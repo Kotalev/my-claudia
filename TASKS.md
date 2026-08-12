@@ -16,6 +16,7 @@
 - [ ] **T-012** "Run with Claude" button on a task; generated prompt references the task id and TASKS.md update rules `#m3` `#p2`
 - [ ] **T-013** Hook sink `POST /api/hooks` + fail-silent `scripts/hook-post.sh` (1s timeout, always exit 0) `#m4` `#p1`
 - [ ] **T-014** Hook installer: merge SessionStart/Stop/SessionEnd/PostToolUse hooks into a target project's `.claude/settings.json` with backup; hooks become primary status source, watcher fallback `#m4` `#p2`
+- [ ] **T-015** Final v1 review, port Claude Code setup (.claude/rules + hooks), README, v1 acceptance pass `#m4` `#p1`
 
 ## In progress
 
@@ -23,4 +24,6 @@
 
 ## Progress log
 
+- 2026-08-12 11:20 T-015 — Added: final review + Claude setup port + README, discovered while planning.
+- 2026-08-12 11:15 — Build design spec + implementation plan written (docs/superpowers/). Research: hooks beat transcripts for live status.
 - 2026-08-12 — Backlog created from SPEC.md milestones (M1 visibility → M2 tasks → M3 dispatch → M4 hooks). Start with T-001.
