@@ -2,13 +2,13 @@
 
 ## Todo
 
-- [ ] **T-015** Final v1 review, port Claude Code setup (.claude/rules + hooks), README, v1 acceptance pass `#m4` `#p1`
 
 ## In progress
 
 
 ## Done
 
+- [x] **T-015** Final v1 review, port Claude Code setup (.claude/rules + hooks), README, v1 acceptance pass `#m4` `#p1` (2026-08-12)
 - [x] **T-014** Hook installer: merge SessionStart/Stop/SessionEnd/PostToolUse hooks into a target project's `.claude/settings.json` with backup; hooks become primary status source, watcher fallback `#m4` `#p2` (2026-08-12)
 - [x] **T-013** Hook sink `POST /api/hooks` + fail-silent `scripts/hook-post.sh` `#m4` `#p1` (2026-08-12)
 - [x] **T-012** "Run with Claude" button on a task; generated prompt references the task id and TASKS.md update rules `#m3` `#p2` (2026-08-12)
@@ -26,6 +26,9 @@
 
 ## Progress log
 
+- 2026-08-12 12:15 T-015 — v1 complete. 163 tests, lint clean, acceptance in docs/verification/v1-acceptance.md.
+- 2026-08-12 12:12 T-015 — Final review: 53 findings, 48 refuted, 5 fixed. Worst was TASKS.md writes deleting unmodelled content.
+- 2026-08-12 12:00 T-015 — Claude setup ported (.claude/rules + hooks + settings), README and domain glossary written.
 - 2026-08-12 11:57 T-014 — Hook installer verified on a real project: hooked session marked done via SessionEnd, which the watcher cannot know.
 - 2026-08-12 11:55 — Bounded backfill made old sessions look promptless; added historyTruncated so "partial history" is stated, not implied.
 - 2026-08-12 11:52 T-013 — Hook sink live: session went active via hook alone. Forwarder exits 0 in 53ms with server down.
