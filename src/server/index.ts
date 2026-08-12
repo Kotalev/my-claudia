@@ -14,6 +14,7 @@ import { EventHub } from './ws/hub.js'
 import { isAllowedHost, isAllowedOrigin } from './origin-guard.js'
 import { Dispatcher } from './dispatcher/index.js'
 import { registerDispatchRoutes } from './routes/dispatch.js'
+import { registerHookRoutes } from './routes/hooks.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -92,6 +93,8 @@ export async function buildServer(
 
   registerTaskRoutes(app, registry, publishTasks)
   registerDispatchRoutes(app, registry, dispatcher, publishTasks)
+  registerHookRoutes(app, store, registry, session =>
+    hub.broadcast({ type: 'session.updated', session }))
 
   app.get('/ws', { websocket: true }, socket => {
     const send = (payload: string) => socket.send(payload)

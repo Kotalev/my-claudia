@@ -7,6 +7,8 @@ export const ACTIVE_WINDOW_MS = 5 * 60 * 1000
 interface SessionState {
   entries: TranscriptEntry[]
   lastStatus: SessionStatus | null
+  /** Set by hook events, which are ahead of the transcript's own timestamps. */
+  hookActivity: string | null
   seen: Set<string>
   ended: boolean
   project: ProjectRecord | null
@@ -21,7 +23,7 @@ export class SessionStore {
     let s = this.#sessions.get(sessionId)
     if (!s) {
       s = {
-        entries: [], lastStatus: null, seen: new Set(), ended: false,
+        entries: [], lastStatus: null, hookActivity: null, seen: new Set(), ended: false,
         project: null, versions: new Set(), skippedUnknown: 0,
       }
       this.#sessions.set(sessionId, s)
@@ -52,6 +54,18 @@ export class SessionStore {
 
   markEnded(sessionId: string): void {
     this.#state(sessionId).ended = true
+  }
+
+  /**
+   * A hook fired for this session. Hooks are the authoritative liveness signal:
+   * the docs state transcript_path is written asynchronously and can lag the
+   * current turn, so transcript recency alone under-reports live sessions.
+   */
+  markActive(sessionId: string, project: ProjectRecord | null): void {
+    const state = this.#state(sessionId)
+    if (project) state.project = project
+    state.hookActivity = new Date().toISOString()
+    state.ended = false
   }
 
   get(sessionId: string): SessionSummary | undefined {
@@ -105,7 +119,10 @@ export class SessionStore {
 
     const first = entries[0]
     const last = entries[entries.length - 1]
-    const lastActivity = last?.timestamp ?? new Date(0).toISOString()
+    const transcriptActivity = last?.timestamp ?? new Date(0).toISOString()
+    const lastActivity = state.hookActivity && state.hookActivity > transcriptActivity
+      ? state.hookActivity
+      : transcriptActivity
     const fresh = Date.now() - Date.parse(lastActivity) < ACTIVE_WINDOW_MS
     const status: SessionStatus = state.ended ? 'done' : fresh ? 'active' : 'idle'
 
