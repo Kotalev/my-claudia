@@ -103,6 +103,20 @@ describe('parseLine — what counts as a human prompt', () => {
     expect(parseLine(userLine('<command-name>/effort</command-name>'))!.isHumanPrompt).toBe(false)
   })
 
+  it('does not mark a background-task notification as a human prompt', () => {
+    // The most common injected shape in real data by a wide margin: 1085 of them
+    // across 262 transcripts, every one of which would otherwise be shown as the
+    // last thing the user said.
+    const e = parseLine(userLine('<task-notification>\n<task-id>wx4j3q51g</task-id>\n</task-notification>'))!
+    expect(e.isHumanPrompt).toBe(false)
+  })
+
+  it('does not mark a `!` bash command or its output as a human prompt', () => {
+    // Typed by a human, but it is a shell command, not a request to the agent.
+    expect(parseLine(userLine('<bash-input>git status</bash-input>'))!.isHumanPrompt).toBe(false)
+    expect(parseLine(userLine('<bash-stdout>On branch main</bash-stdout>'))!.isHumanPrompt).toBe(false)
+  })
+
   it('does not mark an assistant message as a human prompt', () => {
     const line = JSON.stringify({
       type: 'assistant', uuid: 'a1', sessionId: 's1', timestamp: '2026-08-12T10:00:00Z',

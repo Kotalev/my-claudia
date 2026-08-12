@@ -1,20 +1,10 @@
+export type { RunHandle, RunStatus } from '../../shared/types.js'
+import type { RunHandle, RunStatus } from '../../shared/types.js'
 import { EventEmitter } from 'node:events'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { renderStreamLine } from './stream.js'
 
-export type RunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
-
-export interface RunHandle {
-  runId: string
-  projectId: string
-  taskId: string
-  sessionId: string | null
-  status: RunStatus
-  startedAt: string
-  endedAt: string | null
-  exitCode: number | null
-}
 
 interface Run extends RunHandle {
   child: ChildProcess

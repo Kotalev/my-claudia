@@ -1,92 +1,20 @@
-// Mirrors src/shared/types.ts and src/transcript/types.ts. The frontend has no
-// path alias into src/, so these must be kept identical by hand.
+// Re-exports of the server's types. There is deliberately no hand-written copy
+// here: a mirror that drifts silently is worse than no mirror at all, and these
+// types grow every time the dashboard learns to show something new.
+export type {
+  ProjectRecord,
+  SessionStatus,
+  SessionSummary,
+  RunStatus,
+  RunHandle,
+} from '@shared/types.js'
 
-export interface ProjectRecord {
-  id: string
-  path: string
-  name: string
-  escapedDir: string
-  addedAt: string
-}
+export type { ToolCall, TranscriptEntry } from '@transcript/types.js'
 
-export type SessionStatus = 'active' | 'idle' | 'done'
-
-export interface SessionSummary {
-  sessionId: string
-  projectId: string | null
-  projectPath: string | null
-  status: SessionStatus
-  startedAt: string
-  lastActivity: string
-  lastUserPrompt: string | null
-  lastAssistantText: string | null
-  filesTouched: string[]
-  toolCounts: Record<string, number>
-  messageCount: number
-  hasSidechain: boolean
-  versions: string[]
-  skippedUnknown: number
-  historyTruncated: boolean
-}
-
-export interface ToolCall {
-  id: string
-  name: string
-  filePath: string | null
-}
-
-export interface TranscriptEntry {
-  uuid: string
-  parentUuid: string | null
-  sessionId: string
-  timestamp: string
-  role: 'user' | 'assistant' | 'system'
-  isSidechain: boolean
-  cwd: string | null
-  gitBranch: string | null
-  version: string | null
-  text: string | null
-  toolCalls: ToolCall[]
-  isMeta: boolean
-  isHumanPrompt: boolean
-}
-
-export type TaskStatus = 'todo' | 'in-progress' | 'done'
-
-export interface Task {
-  id: string
-  status: TaskStatus
-  title: string
-  tags: string[]
-  doneDate: string | null
-  note: string | null
-}
-
-export interface ProgressEntry { raw: string }
-
-export interface ExtraSection {
-  heading: string
-  lines: string[]
-}
-
-export interface TasksDoc {
-  title: string
-  tasks: Task[]
-  progress: ProgressEntry[]
-  preamble: string[]
-  sectionExtras: Record<string, string[]>
-  extraSections: ExtraSection[]
-}
-
-export type RunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
-
-export interface RunHandle {
-  runId: string
-  projectId: string
-  taskId: string
-  sessionId: string | null
-  status: RunStatus
-  startedAt: string
-  endedAt: string | null
-  exitCode: number | null
-}
+export type {
+  TaskStatus,
+  Task,
+  ProgressEntry,
+  ExtraSection,
+  TasksDoc,
+} from '@tasks/types.js'

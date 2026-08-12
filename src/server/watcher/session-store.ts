@@ -1,5 +1,5 @@
 import type { ParseStats, TranscriptEntry } from '../../transcript/types.js'
-import type { ProjectRecord, SessionStatus, SessionSummary } from '../../shared/types.js'
+import type { LiveProcess, ProjectRecord, SessionStatus, SessionSummary } from '../../shared/types.js'
 
 /** A session with no activity for this long is no longer "active". */
 export const ACTIVE_WINDOW_MS = 5 * 60 * 1000
@@ -15,6 +15,33 @@ interface SessionState {
   project: ProjectRecord | null
   versions: Set<string>
   skippedUnknown: number
+  /** The running process, from Claude Code's own live registry. */
+  live: LiveProcess | null
+  /**
+   * This session was live at some point in this dashboard's lifetime. Once it
+   * disappears from the registry we can say it finished, which is more than the
+   * time-decay rule can ever know.
+   */
+  wasLive: boolean
+}
+
+/**
+ * Liveness precedence. The live registry outranks everything: it is Claude Code's
+ * own account of its processes, so it can say `waiting` where transcript recency
+ * and hook events can only guess between active and idle. A session that was live
+ * and no longer is has genuinely finished — the time-decay rule below can never
+ * conclude that, it can only fade to `idle`.
+ */
+function deriveStatus(state: SessionState, fresh: boolean): SessionStatus {
+  if (state.live) {
+    // `blocked` is what a background agent reports when it needs the user; it is
+    // the same situation as an interactive session's `waiting`.
+    if (state.live.state === 'waiting' || state.live.state === 'blocked') return 'waiting'
+    if (state.live.state === 'busy') return 'active'
+    return fresh ? 'active' : 'idle'
+  }
+  if (state.ended || state.wasLive) return 'done'
+  return fresh ? 'active' : 'idle'
 }
 
 export class SessionStore {
@@ -27,6 +54,7 @@ export class SessionStore {
         entries: [], lastStatus: null, hookActivity: null, historyTruncated: false,
         seen: new Set(), ended: false,
         project: null, versions: new Set(), skippedUnknown: 0,
+        live: null, wasLive: false,
       }
       this.#sessions.set(sessionId, s)
     }
@@ -77,6 +105,38 @@ export class SessionStore {
     if (project) state.project = project
     state.hookActivity = new Date().toISOString()
     state.ended = false
+  }
+
+  /**
+   * Replaces the set of live processes. Sessions we have never seen a transcript
+   * for are created here: a session that started a second ago, or a background
+   * agent that has no transcript in this dashboard's view at all, must still
+   * appear. Returns only the summaries that actually changed, because this runs
+   * on every registry poke and broadcasting all of them would be noise.
+   */
+  setLive(processes: LiveProcess[]): SessionSummary[] {
+    const next = new Map(processes.map(p => [p.sessionId, p]))
+    const touched = new Set<string>([...next.keys()])
+    for (const [id, state] of this.#sessions) if (state.live) touched.add(id)
+
+    const changed: SessionSummary[] = []
+    for (const id of touched) {
+      const state = this.#state(id)
+      const before = state.live
+      const after = next.get(id) ?? null
+      state.live = after
+      if (after) {
+        state.wasLive = true
+        state.ended = false
+      }
+      const summary = this.#summarize(id, state)
+      const same = before?.state === after?.state
+        && (before === null) === (after === null)
+        && state.lastStatus === summary.status
+      state.lastStatus = summary.status
+      if (!same) changed.push(summary)
+    }
+    return changed
   }
 
   get(sessionId: string): SessionSummary | undefined {
@@ -130,19 +190,25 @@ export class SessionStore {
 
     const first = entries[0]
     const last = entries[entries.length - 1]
-    const transcriptActivity = last?.timestamp ?? new Date(0).toISOString()
+    // A session can be live before it has written a single transcript line, and a
+    // background agent may never appear in our transcript view at all. Falling
+    // back to the epoch would date it to 1970 in every list that sorts by time.
+    const transcriptActivity = last?.timestamp ?? state.live?.startedAt ?? new Date(0).toISOString()
     const lastActivity = state.hookActivity && state.hookActivity > transcriptActivity
       ? state.hookActivity
       : transcriptActivity
     const fresh = Date.now() - Date.parse(lastActivity) < ACTIVE_WINDOW_MS
-    const status: SessionStatus = state.ended ? 'done' : fresh ? 'active' : 'idle'
+    const status = deriveStatus(state, fresh)
 
     return {
       sessionId,
       projectId: state.project?.id ?? null,
-      projectPath: state.project?.path ?? first?.cwd ?? null,
+      // A live process states its own cwd, so an unregistered session still knows
+      // where it is. The escaped directory name is never un-escaped to guess it:
+      // the escaping is lossy and reversing it is wrong more often than not.
+      projectPath: state.project?.path ?? state.live?.cwd ?? first?.cwd ?? null,
       status,
-      startedAt: first?.timestamp ?? lastActivity,
+      startedAt: first?.timestamp ?? state.live?.startedAt ?? lastActivity,
       lastActivity,
       lastUserPrompt,
       lastAssistantText,
@@ -153,6 +219,7 @@ export class SessionStore {
       versions: [...state.versions],
       skippedUnknown: state.skippedUnknown,
       historyTruncated: state.historyTruncated,
+      live: state.live,
     }
   }
 }

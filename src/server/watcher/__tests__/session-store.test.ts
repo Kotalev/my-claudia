@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { SessionStore } from '../session-store.js'
 import type { TranscriptEntry, ParseStats } from '../../../transcript/types.js'
+import type { LiveProcess } from '../../../shared/types.js'
 
 const stats: ParseStats = {
   parsed: 0, skippedUnknown: 0, skippedBookkeeping: 0, skippedInvalid: 0, versions: ['2.1.0'],
@@ -134,5 +135,105 @@ describe('SessionStore — truncated history', () => {
     const store = new SessionStore()
     store.markTruncated('s1')
     expect(store.apply('s1', [entry()], stats, null).historyTruncated).toBe(true)
+  })
+})
+
+function live(over: Partial<LiveProcess> = {}): LiveProcess {
+  return {
+    sessionId: 's1', pid: 10478, cwd: '/Users/dev/proj', name: 'proj', kind: 'interactive',
+    entrypoint: 'cli', version: '2.1.228', startedAt: '2026-08-12T09:00:00.000Z',
+    state: 'busy', waitingFor: null, ...over,
+  }
+}
+
+describe('SessionStore — live processes', () => {
+  it('reports waiting, which no other signal can distinguish from idle', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-12T20:00:00.000Z'))   // long past the active window
+    const store = new SessionStore()
+    store.apply('s1', [entry()], stats, null)
+
+    const changed = store.setLive([live({ state: 'waiting', waitingFor: 'permission' })])
+    expect(changed.map(s => [s.sessionId, s.status])).toEqual([['s1', 'waiting']])
+    expect(store.get('s1')?.live?.waitingFor).toBe('permission')
+  })
+
+  it('treats a blocked background agent as waiting on the user', () => {
+    const store = new SessionStore()
+    store.setLive([live({ sessionId: 'bg', pid: null, kind: 'background', state: 'blocked' })])
+    expect(store.get('bg')?.status).toBe('waiting')
+  })
+
+  it('keeps a busy session active however old its last transcript line is', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-13T10:00:00.000Z'))
+    const store = new SessionStore()
+    store.apply('s1', [entry()], stats, null)
+    expect(store.get('s1')?.status).toBe('idle')
+
+    store.setLive([live({ state: 'busy' })])
+    expect(store.get('s1')?.status).toBe('active')
+  })
+
+  it('surfaces a session it has never seen a transcript line for', () => {
+    const store = new SessionStore()
+    store.setLive([live({ sessionId: 'brand-new' })])
+    const s = store.get('brand-new')
+    expect(s).toBeDefined()
+    expect(s?.messageCount).toBe(0)
+    // Its own cwd, so an unregistered session still knows where it is.
+    expect(s?.projectPath).toBe('/Users/dev/proj')
+    expect(s?.startedAt).toBe('2026-08-12T09:00:00.000Z')
+    expect(s?.lastActivity).toBe('2026-08-12T09:00:00.000Z')
+  })
+
+  it('calls a session done once its process is gone, which time decay never can', () => {
+    const store = new SessionStore()
+    store.setLive([live()])
+    expect(store.get('s1')?.status).toBe('active')
+
+    const changed = store.setLive([])
+    expect(changed.map(s => [s.sessionId, s.status])).toEqual([['s1', 'done']])
+    expect(store.get('s1')?.live).toBeNull()
+  })
+
+  it('leaves a session we never saw live alone when the live set is empty', () => {
+    const store = new SessionStore()
+    store.apply('s1', [entry()], stats, null)
+    expect(store.setLive([])).toEqual([])
+    expect(store.get('s1')?.status).not.toBe('done')
+  })
+
+  it('reports nothing when the live set is unchanged', () => {
+    const store = new SessionStore()
+    expect(store.setLive([live()])).toHaveLength(1)
+    expect(store.setLive([live()])).toEqual([])
+  })
+
+  it('reports a state change on the same process', () => {
+    const store = new SessionStore()
+    store.setLive([live({ state: 'busy' })])
+    const changed = store.setLive([live({ state: 'waiting' })])
+    expect(changed.map(s => s.status)).toEqual(['waiting'])
+  })
+
+  it('prefers a registered project path over the process cwd', () => {
+    const store = new SessionStore()
+    const project = {
+      id: 'p1', path: '/registered/path', name: 'p', escapedDir: '-registered-path',
+      addedAt: '2026-08-12T00:00:00.000Z',
+    }
+    store.apply('s1', [entry()], stats, project)
+    store.setLive([live({ cwd: '/Users/dev/proj' })])
+    expect(store.get('s1')?.projectPath).toBe('/registered/path')
+  })
+
+  it('carries no live process by default', () => {
+    const store = new SessionStore()
+    expect(store.apply('s1', [entry()], stats, null).live).toBeNull()
+  })
+
+  it('handles an empty live set on an empty store', () => {
+    expect(new SessionStore().setLive([])).toEqual([])
   })
 })

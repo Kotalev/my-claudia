@@ -19,6 +19,8 @@ import { Dispatcher } from './dispatcher/index.js'
 import { registerDispatchRoutes } from './routes/dispatch.js'
 import { registerHookRoutes } from './routes/hooks.js'
 import { registerHookInstallRoutes } from './routes/hook-install.js'
+import { SessionsRegistry } from './live/sessions-registry.js'
+import { AgentsPoller, mergeLive } from './live/agents-poller.js'
 
 /** Absolute path to the forwarder, resolved once — a project's settings must not hold a relative path. */
 const HOOK_SCRIPT_PATH = fileURLToPath(new URL('../../scripts/hook-post.sh', import.meta.url))
@@ -30,6 +32,7 @@ declare module 'fastify' {
     watcher: SessionWatcher
     tasksWatcher: TasksWatcher
     dispatcher: Dispatcher
+    sessionsRegistry: SessionsRegistry
     hub: EventHub
   }
 }
@@ -46,6 +49,13 @@ export async function buildServer(
   await watcher.start()
 
   const dispatcher = new Dispatcher()
+
+  // Claude Code's own live-session registry. Started before the hub so the first
+  // snapshot already carries the running processes rather than an empty band.
+  const sessionsRegistry = new SessionsRegistry()
+  await sessionsRegistry.start()
+  const agentsPoller = new AgentsPoller()
+  store.setLive(mergeLive(sessionsRegistry.list(), agentsPoller.list()))
 
   const tasksWatcher = new TasksWatcher(registry)
   await tasksWatcher.start()
@@ -65,6 +75,17 @@ export async function buildServer(
     tasks: cachedDocs,
   }))
   watcher.on('session', session => hub.broadcast({ type: 'session.updated', session }))
+
+  const pushLive = (): void => {
+    for (const session of store.setLive(mergeLive(sessionsRegistry.list(), agentsPoller.list()))) {
+      hub.broadcast({ type: 'session.updated', session })
+    }
+  }
+  sessionsRegistry.on('change', pushLive)
+  agentsPoller.on('change', pushLive)
+  // Not awaited: the first poll shells out to `claude`, and the dashboard must
+  // come up whether or not that binary answers.
+  void agentsPoller.start()
   dispatcher.on('output', ({ runId, chunk }: { runId: string; chunk: string }) =>
     hub.broadcast({ type: 'dispatch.output', runId, chunk }))
   dispatcher.on('update', run => hub.broadcast({ type: 'dispatch.updated', run }))
@@ -139,10 +160,12 @@ export async function buildServer(
   app.decorate('watcher', watcher)
   app.decorate('tasksWatcher', tasksWatcher)
   app.decorate('dispatcher', dispatcher)
+  app.decorate('sessionsRegistry', sessionsRegistry)
   app.decorate('hub', hub)
   app.addHook('onClose', async () => {
     clearInterval(sweep)
-    await Promise.all([watcher.stop(), tasksWatcher.stop()])
+    agentsPoller.stop()
+    await Promise.all([watcher.stop(), tasksWatcher.stop(), sessionsRegistry.stop()])
   })
 
   return app

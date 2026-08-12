@@ -2,12 +2,34 @@
 
 ## Todo
 
+### M6 — session telemetry
+
+- [ ] **T-022** Transcript telemetry fields: `messageId`, `requestId`, `model`, `usage` (5m/1h cache split, thinking, web search), `effort`, `isApiError`. Fixtures: split-response same message.id, `<synthetic>`, legacy usage shape `#m6` `#p1`
+- [ ] **T-023** Parse `system`/`compact_boundary` + `compactMetadata` as a boundary marker, not a prompt; every subfield optional `#m6` `#p1`
+- [ ] **T-024** `SessionUsage` aggregation: dedupe by `messageId` taking max-per-field, drop `<synthetic>`/api-error lines, occupancy = last non-sidechain assistant turn, main vs subagent split. Tests: dedup, re-apply idempotence, empty → zeros not NaN `#m6` `#p1`
+- [ ] **T-025** `src/shared/pricing.ts`: model → rates + context windows + `PRICES_VERIFIED_ON`; unknown id → null, never 0 `#m6` `#p1`
+- [ ] **T-026** Context occupancy bar on live rows + session detail; unknown model → raw tokens and no bar; no assistant turn yet → em dash, never 0% `#m6` `#p1`
+- [ ] **T-027** Session detail telemetry panel: token table (main/subagents/total), compaction markers on the timeline, model-change and fallback surfacing `#m6` `#p2`
+
+### M7 — cost and plan limits
+
+- [ ] **T-028** Cost display: PAYG estimate at list prices, plus the no-cache counterfactual so the cache saving is visible. `≈` prefix, persistent "API-equivalent — subscription bills differently" qualifier, `n/a` for unpriced models `#m7` `#p1`
+- [ ] **T-029** Capture `total_cost_usd` + `num_turns` onto `RunHandle` instead of only rendering them into a string; label "reported by claude" `#m7` `#p3`
+- [ ] **T-030** Statusline installer with backup + passthrough of the user's existing statusline; surfaces 5h/7d plan limits. Must never break a session `#m7` `#p2`
+- [ ] **T-031** Record in SPEC.md: process definition, liveness precedence, occupancy formula and its one-turn lag, dedup rule, pricing policy `#m5` `#p2`
+
 
 ## In progress
 
 
 ## Done
 
+- [x] **T-016** Kill the hand-maintained web type mirror: vite `resolve.alias` for @shared/@transcript, rewrite `web/src/shared/types.ts` as re-exports, move `RunStatus`/`RunHandle` into `src/shared/types.ts` `#m5` `#p1` (2026-08-12)
+- [x] **T-017** `src/server/live/sessions-registry.ts`: watch `<claude dir>/sessions/*.json` (never `*.key` — secrets), `LiveProcess` type, liveness via `kill(pid,0)` + `startedAt` match; tests: stale entry, garbage json, missing dir `#m5` `#p1` (2026-08-12)
+- [x] **T-018** `claude agents --json` poller (30s, unref'd, spawn not shell, fail-silent). Only source of `kind:"background"` agents — they have no pid and no registry file. Merge by `sessionId` `#m5` `#p1` (2026-08-12)
+- [x] **T-019** Wire live processes into SessionStore: `live` on `SessionSummary`, add `waiting` to `SessionStatus`, retype `STATUS_STYLES` as `Record<SessionStatus,string>` first, broadcast only changed `#m5` `#p1` (2026-08-12)
+- [x] **T-020** Resolve a session's real project path without un-escaping (live `cwd` → newest transcript `cwd` → re-escaped `~/.claude.json` keys → "path unknown"); live sessions show regardless of registration `#m5` `#p1` (2026-08-12)
+- [x] **T-021** Overview "Live" band: always present, waiting→busy→idle order, new processes appear with no reload, dead ones drop out; browser-verified `#m5` `#p1` (2026-08-12)
 - [x] **T-015** Final v1 review, port Claude Code setup (.claude/rules + hooks), README, v1 acceptance pass `#m4` `#p1` (2026-08-12)
 - [x] **T-014** Hook installer: merge SessionStart/Stop/SessionEnd/PostToolUse hooks into a target project's `.claude/settings.json` with backup; hooks become primary status source, watcher fallback `#m4` `#p2` (2026-08-12)
 - [x] **T-013** Hook sink `POST /api/hooks` + fail-silent `scripts/hook-post.sh` `#m4` `#p1` (2026-08-12)
@@ -26,6 +48,13 @@
 
 ## Progress log
 
+- 2026-08-12 12:45 T-021 — Live band verified in browser: 4 real processes, 2 background agents shown as waiting. Console clean.
+- 2026-08-12 12:43 — Parser bug found via the live band: <task-notification> counted as a human prompt. 1085 such lines across 262 transcripts.
+- 2026-08-12 12:40 T-017..T-020 — Live sources wired: sessions registry + agents poller merged by sessionId; status gains `waiting`.
+- 2026-08-12 12:36 T-016 — Web type mirror deleted; vite aliases into src/. Types can no longer drift silently.
+- 2026-08-12 12:30 — v2 decided: subscription + PAYG-estimate cost, statusline with passthrough, live-only discovery. M5-M7 queued.
+- 2026-08-12 12:28 — Research: ~/.claude/sessions/<pid>.json is a real live-session registry (pid, cwd, status busy|waiting).
+- 2026-08-12 12:28 — Research: `claude agents --json` is the only source of background agents; they have no pid and no registry file.
 - 2026-08-12 12:15 T-015 — v1 complete. 163 tests, lint clean, acceptance in docs/verification/v1-acceptance.md.
 - 2026-08-12 12:12 T-015 — Final review: 53 findings, 48 refuted, 5 fixed. Worst was TASKS.md writes deleting unmodelled content.
 - 2026-08-12 12:00 T-015 — Claude setup ported (.claude/rules + hooks + settings), README and domain glossary written.

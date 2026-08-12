@@ -17,3 +17,8 @@ export function escapeProjectPath(projectPath: string): string {
 export function projectsDir(): string {
   return join(resolveClaudeDir(), 'projects')
 }
+
+/** Claude Code writes one file per live process here, named `<pid>.json`. */
+export function sessionsDir(): string {
+  return join(resolveClaudeDir(), 'sessions')
+}

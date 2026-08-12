@@ -50,6 +50,14 @@ export const INJECTED_MARKERS = [
   '<command-args>',
   '<system-reminder>',
   '<user-prompt-submit-hook>',
+  // Background-task results replayed as a user turn. By far the most common
+  // injected shape in real transcripts, and the easiest to mistake for a prompt.
+  '<task-notification>',
+  // A `!` command typed in the CLI. Human-typed, but a shell command is not a
+  // request to the agent, and showing it as "what they last asked" reads wrong.
+  '<bash-input>',
+  '<bash-stdout>',
+  '<bash-stderr>',
 ] as const
 
 /**

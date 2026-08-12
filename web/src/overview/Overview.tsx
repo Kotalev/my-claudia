@@ -1,12 +1,15 @@
 import type { LiveState } from '../shared/useLiveState.js'
 import { ProjectCard } from './ProjectCard.js'
+import { LiveBand } from './LiveBand.js'
 
 export function Overview(
   { live, onOpenSession, onOpenProject }:
   { live: LiveState; onOpenSession: (id: string) => void; onOpenProject: (id: string) => void },
 ) {
   const { projects, sessions, connected } = live
-  const unassigned = sessions.filter(s => s.projectId === null)
+  // Live sessions already have a home in the band above, whether or not their
+  // project was ever registered here.
+  const unassigned = sessions.filter(s => s.projectId === null && s.live === null)
 
   return (
     <main className="min-h-screen bg-neutral-950 p-8 text-neutral-100">
@@ -16,6 +19,8 @@ export function Overview(
           {connected ? 'live' : 'reconnecting…'}
         </span>
       </header>
+
+      <LiveBand sessions={sessions} onOpen={onOpenSession} />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {projects.map(p => (
