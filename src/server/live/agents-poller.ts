@@ -18,6 +18,17 @@ const CALL_TIMEOUT_MS = 5_000
  */
 const MAX_STALE_POLLS = 3
 
+/**
+ * Background agents are reported by the CLI until someone dismisses them, so a
+ * run that was blocked on the user months ago is still listed. Nobody is going
+ * to answer it: it is not a live process, it is litter, and showing it with an
+ * animated dot next to sessions that really are running devalues the whole band.
+ *
+ * Seven days, matching the backfill window the watcher already uses for deciding
+ * a transcript is too old to be worth reading.
+ */
+export const MAX_AGENT_AGE_MS = 7 * 24 * 60 * 60 * 1000
+
 function asString(v: unknown): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null
 }
@@ -33,7 +44,19 @@ function stateOf(o: Record<string, unknown>): LiveState {
  * Parses `claude agents --json`. Anything unusable is skipped rather than
  * failing the whole poll — one malformed entry must not hide the others.
  */
-export function parseAgentsJson(raw: string): LiveProcess[] {
+/**
+ * Whether this entry is recent enough to call live. Only background agents are
+ * aged out: an interactive process is proved alive by its pid, so a genuinely
+ * long-running one stays however old it is.
+ */
+export function isFresh(proc: LiveProcess, now = Date.now()): boolean {
+  if (proc.kind !== 'background') return true
+  if (proc.startedAt === null) return true   // no age to judge; do not guess
+  const age = now - Date.parse(proc.startedAt)
+  return !Number.isFinite(age) || age <= MAX_AGENT_AGE_MS
+}
+
+export function parseAgentsJson(raw: string, now = Date.now()): LiveProcess[] {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
@@ -49,7 +72,7 @@ export function parseAgentsJson(raw: string): LiveProcess[] {
     const sessionId = asString(o.sessionId)
     if (sessionId === null) continue
     const pid = typeof o.pid === 'number' && Number.isInteger(o.pid) && o.pid > 0 ? o.pid : null
-    out.push({
+    const proc: LiveProcess = {
       sessionId,
       pid,
       cwd: asString(o.cwd),
@@ -62,7 +85,8 @@ export function parseAgentsJson(raw: string): LiveProcess[] {
         : null,
       state: stateOf(o),
       waitingFor: asString(o.waitingFor),
-    })
+    }
+    if (isFresh(proc, now)) out.push(proc)
   }
   return out
 }

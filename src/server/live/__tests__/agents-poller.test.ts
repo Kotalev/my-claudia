@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { fileURLToPath } from 'node:url'
-import { parseAgentsJson, mergeLive, AgentsPoller } from '../agents-poller.js'
+import { parseAgentsJson, mergeLive, AgentsPoller, isFresh, MAX_AGENT_AGE_MS } from '../agents-poller.js'
 import type { LiveProcess } from '../../../shared/types.js'
 
 const FAKE = fileURLToPath(new URL('../../../../test/fixtures/fake-agents.mjs', import.meta.url))
@@ -9,7 +9,7 @@ describe('parseAgentsJson', () => {
   it('reads a background agent, which has no pid', () => {
     const [a] = parseAgentsJson(JSON.stringify([{
       id: 'fc039f19', cwd: '/Users/dev/Projects/pable', kind: 'background',
-      startedAt: 1779604079033, sessionId: 'fc039f19-e199', name: 'mobile-prp', state: 'blocked',
+      startedAt: Date.now() - 3_600_000, sessionId: 'fc039f19-e199', name: 'mobile-prp', state: 'blocked',
     }]))
     expect(a).toMatchObject({
       sessionId: 'fc039f19-e199', pid: null, kind: 'background',
@@ -141,5 +141,42 @@ describe('AgentsPoller — when the binary stops answering', () => {
     await starting
     // A leaked interval would keep shelling out to `claude` for the process lifetime.
     expect(poller.pollingStarted()).toBe(false)
+  })
+})
+
+describe('isFresh — abandoned background agents', () => {
+  const NOW = Date.parse('2026-08-12T12:00:00.000Z')
+  const bg = (startedAt: string | null) =>
+    proc({ kind: 'background', pid: null, startedAt })
+
+  it('drops a background agent blocked for months', () => {
+    // Nobody is going to answer it; it is litter, not a live process.
+    expect(isFresh(bg('2026-05-24T09:00:00.000Z'), NOW)).toBe(false)
+    expect(isFresh(bg('2026-07-22T09:00:00.000Z'), NOW)).toBe(false)
+  })
+
+  it('keeps a background agent from today', () => {
+    expect(isFresh(bg('2026-08-12T09:00:00.000Z'), NOW)).toBe(true)
+  })
+
+  it('keeps one right on the boundary', () => {
+    expect(isFresh(bg(new Date(NOW - MAX_AGENT_AGE_MS + 1000).toISOString()), NOW)).toBe(true)
+    expect(isFresh(bg(new Date(NOW - MAX_AGENT_AGE_MS - 1000).toISOString()), NOW)).toBe(false)
+  })
+
+  it('never ages out an interactive process, whose pid already proves it is alive', () => {
+    expect(isFresh(proc({ kind: 'interactive', pid: 10478, startedAt: '2025-01-01T00:00:00.000Z' }), NOW)).toBe(true)
+  })
+
+  it('keeps an entry with no start time rather than guessing it is stale', () => {
+    expect(isFresh(bg(null), NOW)).toBe(true)
+  })
+
+  it('filters them out of the parsed list', () => {
+    const raw = JSON.stringify([
+      { sessionId: 'old', kind: 'background', startedAt: Date.parse('2026-05-24T09:00:00.000Z'), state: 'blocked' },
+      { sessionId: 'new', kind: 'background', startedAt: Date.parse('2026-08-12T09:00:00.000Z'), state: 'blocked' },
+    ])
+    expect(parseAgentsJson(raw, NOW).map(a => a.sessionId)).toEqual(['new'])
   })
 })

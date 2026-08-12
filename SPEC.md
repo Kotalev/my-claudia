@@ -188,6 +188,12 @@ Verified traps, both live in the code as comments:
 - `*.key` files sit beside the JSON, mode 600. They are secrets. Only
   `<digits>.json` is ever opened.
 
+**Freshness.** Background agents are listed by the CLI until someone dismisses
+them, so a run blocked on the user months ago is still reported. Those are
+dropped above seven days — the same window the watcher uses to decide a
+transcript is too old to read. Interactive processes are never aged out: their
+pid already proves they are alive.
+
 ### 8.2 Status precedence
 
 1. **Not live** (no entry, or pid alive but started at the wrong time) → `done`.
