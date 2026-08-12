@@ -50,7 +50,10 @@ export async function buildServer(
   storePath = join(process.cwd(), 'projects.json'),
   tokenPath = join(process.cwd(), '.auth-token'),
 ): Promise<FastifyInstance> {
-  const app = Fastify({ logger: { level: 'info' } })
+  const app = Fastify({
+    logger: { level: 'info' },
+    logController: new LogController({ disableRequestLogging: true }),
+  })
 
   const authToken = await loadOrCreateToken(tokenPath)
 
