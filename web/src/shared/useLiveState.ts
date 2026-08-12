@@ -14,6 +14,7 @@ export function useLiveState(): LiveState {
   const [tasks, setTasks] = useState<Record<string, TasksDoc>>({})
   const [connected, setConnected] = useState(false)
   const lastSeq = useRef(0)
+  const seeded = useRef(false)
 
   useEffect(() => {
     let socket: WebSocket | null = null
@@ -27,16 +28,25 @@ export function useLiveState(): LiveState {
       socket.onopen = () => {
         setConnected(true)
         lastSeq.current = 0
+        seeded.current = false
         // Laptop sleep is the main local failure mode; a heartbeat surfaces dead sockets.
         heartbeat = window.setInterval(() => socket?.send(JSON.stringify({ type: 'ping' })), 30_000)
       }
 
       socket.onmessage = ev => {
         const msg = JSON.parse(ev.data as string)
-        if (msg.type !== 'snapshot' && lastSeq.current !== 0 && msg.seq !== lastSeq.current + 1) {
-          socket?.send(JSON.stringify({ type: 'resnapshot' }))   // gap: refetch rather than patch
+
+        // Snapshots and pongs are unicast: they carry the current sequence rather
+        // than advancing it, so they are a baseline, never a gap.
+        if (msg.type === 'snapshot' || msg.type === 'pong') {
+          lastSeq.current = msg.seq
+        } else {
+          if (seeded.current && msg.seq !== lastSeq.current + 1) {
+            socket?.send(JSON.stringify({ type: 'resnapshot' }))   // gap: refetch rather than patch
+          }
+          lastSeq.current = msg.seq
+          seeded.current = true
         }
-        lastSeq.current = msg.seq
         if (msg.type === 'snapshot') {
           setProjects(msg.projects)
           setSessions(msg.sessions)

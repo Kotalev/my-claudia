@@ -93,3 +93,29 @@ describe('SessionStore', () => {
     expect(store.all().map(s => s.sessionId)).toEqual(['new', 'old'])
   })
 })
+
+describe('SessionStore.sweepStatusChanges', () => {
+  it('reports a session that has gone quiet since the last look', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-12T10:02:00.000Z'))
+    const store = new SessionStore()
+    expect(store.apply('s1', [entry()], stats, null).status).toBe('active')
+
+    expect(store.sweepStatusChanges()).toEqual([])   // nothing changed yet
+
+    vi.setSystemTime(new Date('2026-08-12T10:30:00.000Z'))
+    const changed = store.sweepStatusChanges()
+    expect(changed.map(s => [s.sessionId, s.status])).toEqual([['s1', 'idle']])
+  })
+
+  it('reports each transition only once', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-12T10:02:00.000Z'))
+    const store = new SessionStore()
+    store.apply('s1', [entry()], stats, null)
+
+    vi.setSystemTime(new Date('2026-08-12T10:30:00.000Z'))
+    expect(store.sweepStatusChanges()).toHaveLength(1)
+    expect(store.sweepStatusChanges()).toHaveLength(0)
+  })
+})

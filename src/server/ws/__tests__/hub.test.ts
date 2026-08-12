@@ -4,13 +4,13 @@ import { EventHub } from '../hub.js'
 const emptySnapshot = () => ({ projects: [], sessions: [], tasks: {} })
 
 describe('EventHub', () => {
-  it('sends a full snapshot as seq 1 the moment a client connects', () => {
+  it('sends a full snapshot carrying the current sequence the moment a client connects', () => {
     const hub = new EventHub(emptySnapshot)
     const send = vi.fn()
     hub.addClient(send)
     const msg = JSON.parse(send.mock.calls[0]![0] as string)
     expect(msg.type).toBe('snapshot')
-    expect(msg.seq).toBe(1)
+    expect(msg.seq).toBe(0)   // the snapshot is the client's baseline, not an event
   })
 
   it('numbers broadcasts monotonically so clients can detect gaps', () => {
@@ -20,7 +20,7 @@ describe('EventHub', () => {
     hub.broadcast({ type: 'session.updated', session: { sessionId: 'a' } as never })
     hub.broadcast({ type: 'session.updated', session: { sessionId: 'b' } as never })
     const seqs = send.mock.calls.map(c => JSON.parse(c[0] as string).seq)
-    expect(seqs).toEqual([1, 2, 3])
+    expect(seqs).toEqual([0, 1, 2])
   })
 
   it('stops sending to a client after it disconnects', () => {
@@ -65,5 +65,50 @@ describe('EventHub', () => {
     hub.addClient(good)
     expect(() => hub.broadcast({ type: 'session.updated', session: {} as never })).not.toThrow()
     expect(good).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('EventHub — sequence isolation', () => {
+  it('does not desync existing clients when a new client connects', () => {
+    const hub = new EventHub(emptySnapshot)
+    const a = vi.fn()
+    hub.addClient(a)
+    hub.broadcast({ type: 'session.updated', session: {} as never })
+    a.mockClear()
+
+    hub.addClient(vi.fn())          // B's snapshot must not consume a sequence number
+    hub.broadcast({ type: 'session.updated', session: {} as never })
+
+    const seqs = a.mock.calls.map(c => JSON.parse(c[0] as string).seq)
+    expect(seqs).toEqual([2])       // A saw 1 then 2: contiguous, no gap
+  })
+
+  it('does not desync other clients when one is answered with a pong', () => {
+    const hub = new EventHub(emptySnapshot)
+    const a = vi.fn()
+    const b = vi.fn()
+    hub.addClient(a)
+    hub.addClient(b)
+    hub.broadcast({ type: 'session.updated', session: {} as never })
+    a.mockClear()
+
+    hub.handleClientMessage(JSON.stringify({ type: 'ping' }), b)
+    hub.broadcast({ type: 'session.updated', session: {} as never })
+
+    const seqs = a.mock.calls.map(c => JSON.parse(c[0] as string).seq)
+    expect(seqs).toEqual([2])
+  })
+
+  it('gives a resnapshot the current sequence so the client resyncs exactly', () => {
+    const hub = new EventHub(emptySnapshot)
+    const send = vi.fn()
+    hub.addClient(send)
+    hub.broadcast({ type: 'session.updated', session: {} as never })
+    send.mockClear()
+
+    hub.handleClientMessage(JSON.stringify({ type: 'resnapshot' }), send)
+    const snap = JSON.parse(send.mock.calls[0]![0] as string)
+    expect(snap.type).toBe('snapshot')
+    expect(snap.seq).toBe(1)        // matches the last broadcast, not one past it
   })
 })

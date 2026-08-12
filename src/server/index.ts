@@ -10,6 +10,7 @@ import { TaskStore } from '../tasks/store.js'
 import { SessionStore } from './watcher/session-store.js'
 import { SessionWatcher } from './watcher/index.js'
 import { EventHub } from './ws/hub.js'
+import { isAllowedHost, isAllowedOrigin } from './origin-guard.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -40,6 +41,14 @@ export async function buildServer(
 
   await app.register(websocket)
 
+  // Applies to the WebSocket upgrade request too, which is the point: /ws would
+  // otherwise be reachable from any page the user happens to have open.
+  app.addHook('onRequest', async (req, reply) => {
+    if (!isAllowedHost(req.headers.host) || !isAllowedOrigin(req.headers.origin)) {
+      return reply.code(403).send({ error: 'forbidden: non-local host or origin' })
+    }
+  })
+
   app.get('/api/health', async () => ({ ok: true, version: '0.1.0' }))
   registerProjectRoutes(app, registry)
   registerSessionRoutes(app, store, registry)
@@ -58,11 +67,20 @@ export async function buildServer(
     socket.on('error', disconnect)
   })
 
+  // Status decays with wall-clock time, so quiet sessions need a nudge to stop
+  // being reported as active in tabs that are already open.
+  const sweep = setInterval(() => {
+    for (const session of store.sweepStatusChanges()) {
+      hub.broadcast({ type: 'session.updated', session })
+    }
+  }, 60_000)
+  sweep.unref()
+
   app.decorate('registry', registry)
   app.decorate('store', store)
   app.decorate('watcher', watcher)
   app.decorate('hub', hub)
-  app.addHook('onClose', () => watcher.stop())
+  app.addHook('onClose', async () => { clearInterval(sweep); await watcher.stop() })
 
   return app
 }

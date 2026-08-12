@@ -6,6 +6,7 @@ export const ACTIVE_WINDOW_MS = 5 * 60 * 1000
 
 interface SessionState {
   entries: TranscriptEntry[]
+  lastStatus: SessionStatus | null
   seen: Set<string>
   ended: boolean
   project: ProjectRecord | null
@@ -19,7 +20,10 @@ export class SessionStore {
   #state(sessionId: string): SessionState {
     let s = this.#sessions.get(sessionId)
     if (!s) {
-      s = { entries: [], seen: new Set(), ended: false, project: null, versions: new Set(), skippedUnknown: 0 }
+      s = {
+        entries: [], lastStatus: null, seen: new Set(), ended: false,
+        project: null, versions: new Set(), skippedUnknown: 0,
+      }
       this.#sessions.set(sessionId, s)
     }
     return s
@@ -41,7 +45,9 @@ export class SessionStore {
       state.seen.add(e.uuid)
       state.entries.push(e)
     }
-    return this.#summarize(sessionId, state)
+    const summary = this.#summarize(sessionId, state)
+    state.lastStatus = summary.status
+    return summary
   }
 
   markEnded(sessionId: string): void {
@@ -57,6 +63,22 @@ export class SessionStore {
     return [...this.#sessions.entries()]
       .map(([id, state]) => this.#summarize(id, state))
       .sort((a, b) => b.lastActivity.localeCompare(a.lastActivity))
+  }
+
+  /**
+   * Status is a function of wall-clock time, but summaries are only recomputed
+   * when a file changes — so a session that simply goes quiet would stay
+   * "active" in an open tab forever. Callers run this periodically and
+   * broadcast whatever it returns.
+   */
+  sweepStatusChanges(): SessionSummary[] {
+    const changed: SessionSummary[] = []
+    for (const [id, state] of this.#sessions) {
+      const summary = this.#summarize(id, state)
+      if (state.lastStatus !== null && state.lastStatus !== summary.status) changed.push(summary)
+      state.lastStatus = summary.status
+    }
+    return changed
   }
 
   entries(sessionId: string): TranscriptEntry[] {

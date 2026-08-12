@@ -64,3 +64,19 @@ describe('readNewLines', () => {
     expect(JSON.parse(lines[0]!).t).toBe('здравей')
   })
 })
+
+describe('readNewLines — concurrent appends', () => {
+  it('does not consume bytes beyond the size it recorded', async () => {
+    // Simulates Claude appending while we read: the extra bytes must be left for
+    // the next pass, not silently swallowed into a garbled partial line.
+    await writeFile(file, '{"a":1}\n')
+    const first = readNewLines(file, createTailState())
+    await appendFile(file, '{"a":2}\n')
+    const { lines, state } = await first
+
+    const second = await readNewLines(file, state)
+    const all = [...lines, ...second.lines]
+    expect(all).toEqual(['{"a":1}', '{"a":2}'])
+    for (const l of all) expect(() => JSON.parse(l)).not.toThrow()
+  })
+})

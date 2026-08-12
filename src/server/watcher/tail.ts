@@ -11,10 +11,13 @@ export function createTailState(): TailState {
   return { byteOffset: 0, partial: '' }
 }
 
-async function readFrom(filePath: string, start: number): Promise<string> {
+async function readFrom(filePath: string, start: number, end: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
-    const stream = createReadStream(filePath, { start })
+    // `end` is inclusive. Bounding the read to the size we already stat'd keeps
+    // the recorded offset honest: without it the stream races ahead to whatever
+    // EOF is when it drains, consuming bytes the offset does not account for.
+    const stream = createReadStream(filePath, { start, end })
     stream.on('data', c => chunks.push(c as Buffer))
     stream.on('error', reject)
     // Decode once at the end so multibyte characters split across chunks survive.
@@ -43,7 +46,7 @@ export async function readNewLines(
   }
   if (info.size === byteOffset) return { lines: [], state: { byteOffset, partial } }
 
-  const chunk = await readFrom(filePath, byteOffset)
+  const chunk = await readFrom(filePath, byteOffset, info.size - 1)
   const combined = partial + chunk
   const pieces = combined.split('\n')
   const nextPartial = pieces.pop() ?? ''

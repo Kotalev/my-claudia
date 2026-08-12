@@ -24,7 +24,7 @@ export class EventHub {
 
   addClient(send: Send): () => void {
     this.#clients.add(send)
-    this.#emit(send, { type: 'snapshot', ...this.snapshot() })
+    this.#unicast(send, { type: 'snapshot', ...this.snapshot() })
     return () => { this.#clients.delete(send) }
   }
 
@@ -39,11 +39,16 @@ export class EventHub {
   handleClientMessage(raw: string, send: Send): void {
     let msg: { type?: string }
     try { msg = JSON.parse(raw) } catch { return }
-    if (msg.type === 'resnapshot') this.#emit(send, { type: 'snapshot', ...this.snapshot() })
-    else if (msg.type === 'ping') this.#emit(send, { type: 'pong' })
+    if (msg.type === 'resnapshot') this.#unicast(send, { type: 'snapshot', ...this.snapshot() })
+    else if (msg.type === 'ping') this.#unicast(send, { type: 'pong' })
   }
 
-  #emit(send: Send, event: ServerEvent): void {
-    try { send(JSON.stringify({ seq: ++this.#seq, ...event })) } catch { this.#clients.delete(send) }
+  /**
+   * Sends to one client WITHOUT advancing the broadcast counter. Incrementing it
+   * here would burn a sequence number the other clients never see, so every one
+   * of them would detect a permanent gap and resnapshot on the next broadcast.
+   */
+  #unicast(send: Send, event: ServerEvent): void {
+    try { send(JSON.stringify({ seq: this.#seq, ...event })) } catch { this.#clients.delete(send) }
   }
 }
