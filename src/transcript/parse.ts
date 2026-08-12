@@ -1,7 +1,11 @@
 import {
   BOOKKEEPING_TYPES, CONTENT_TYPES, INJECTED_MARKERS,
-  type ParseStats, type Role, type ToolCall, type TranscriptEntry,
+  type CompactBoundary, type EntryUsage, type ParseStats, type Role, type ToolCall,
+  type TranscriptEntry,
 } from './types.js'
+
+/** The sentinel Claude Code writes for messages it generated without a model. */
+export const SYNTHETIC_MODEL = '<synthetic>'
 
 /**
  * Distinguishes something the user typed from machine content Claude Code
@@ -12,6 +16,65 @@ function looksHumanTyped(text: string | null): boolean {
   if (text === null) return false
   const head = text.trimStart()
   return !INJECTED_MARKERS.some(marker => head.startsWith(marker))
+}
+
+function num(v: unknown): number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0
+}
+
+function obj(v: unknown): Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v) ? v as Record<string, unknown> : {}
+}
+
+/**
+ * Reads the usage block off a message. Every field is optional: the shape has
+ * already changed once within the versions on this machine (`output_tokens_details`
+ * and the `cache_creation` split are both newer than the oldest transcripts), so
+ * a missing field must read as zero rather than sink the line.
+ */
+function extractUsage(message: Record<string, unknown>): EntryUsage | null {
+  const u = message.usage
+  if (typeof u !== 'object' || u === null || Array.isArray(u)) return null
+  const raw = u as Record<string, unknown>
+  const creation = obj(raw.cache_creation)
+  const serverTools = obj(raw.server_tool_use)
+  const details = obj(raw.output_tokens_details)
+
+  const cc5 = num(creation.ephemeral_5m_input_tokens)
+  const cc1h = num(creation.ephemeral_1h_input_tokens)
+  // Older lines carry only the flat total and no split at all.
+  const flatCreation = num(raw.cache_creation_input_tokens)
+
+  return {
+    inputTokens: num(raw.input_tokens),
+    outputTokens: num(raw.output_tokens),
+    cacheReadInputTokens: num(raw.cache_read_input_tokens),
+    cacheCreationInputTokens: flatCreation > 0 ? flatCreation : cc5 + cc1h,
+    cacheCreation5mInputTokens: cc5,
+    cacheCreation1hInputTokens: cc1h,
+    thinkingTokens: typeof details.thinking_tokens === 'number' ? num(details.thinking_tokens) : null,
+    webSearchRequests: num(serverTools.web_search_requests),
+    webFetchRequests: num(serverTools.web_fetch_requests),
+    serviceTier: str(raw.service_tier),
+    inferenceGeo: str(raw.inference_geo),
+    speed: str(raw.speed),
+  }
+}
+
+function optNum(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
+}
+
+function extractCompact(o: Record<string, unknown>): CompactBoundary | null {
+  if (o.subtype !== 'compact_boundary') return null
+  const meta = obj(o.compactMetadata)
+  return {
+    trigger: str(meta.trigger),
+    preTokens: optNum(meta.preTokens),
+    postTokens: optNum(meta.postTokens),
+    durationMs: optNum(meta.durationMs),
+    cumulativeDroppedTokens: optNum(meta.cumulativeDroppedTokens),
+  }
 }
 
 /** Tool input keys that carry a file path, in priority order. */
@@ -95,8 +158,12 @@ export function parseLine(raw: string): TranscriptEntry | null {
   const timestamp = str(obj.timestamp)
   if (!uuid || !sessionId || !timestamp) return null
 
+  const message = typeof obj.message === 'object' && obj.message !== null
+    ? obj.message as Record<string, unknown>
+    : {}
   const { text, toolCalls } = extractContent(obj.message)
   const systemContent = type === 'system' ? str(obj.content) : null
+  const compact = extractCompact(obj)
 
   return {
     uuid,
@@ -111,10 +178,22 @@ export function parseLine(raw: string): TranscriptEntry | null {
     text: text ?? systemContent,
     toolCalls,
     isMeta: obj.isMeta === true,
+    messageId: str(message.id),
+    requestId: str(obj.requestId),
+    model: str(message.model),
+    usage: extractUsage(message),
+    effort: str(obj.effort),
+    isApiError: obj.isApiErrorMessage === true,
+    isCompactBoundary: compact !== null,
+    compact,
     isHumanPrompt:
       type === 'user' &&
       obj.isMeta !== true &&
       obj.isSidechain !== true &&
+      // The summary Claude Code writes for itself after compacting is replayed as
+      // a user turn. Showing it as the last thing the user said is wrong, and it
+      // happens right when a session is most interesting to look at.
+      obj.isCompactSummary !== true &&
       looksHumanTyped(text),
   }
 }

@@ -149,3 +149,119 @@ describe('parseLine — what counts as a human prompt', () => {
     expect(parseLine(line)!.isHumanPrompt).toBe(false)
   })
 })
+
+describe('parseLine — usage telemetry', () => {
+  const assistantLine = (usage: unknown, over: Record<string, unknown> = {}): string => JSON.stringify({
+    type: 'assistant', uuid: 'a1', sessionId: 's1', timestamp: '2026-08-12T10:00:00Z',
+    requestId: 'req_011CdxbpqUT1FfWuzvZ9w3Pz', effort: 'medium',
+    message: { id: 'msg_01ABC', model: 'claude-opus-5', role: 'assistant', content: [], usage },
+    ...over,
+  })
+
+  const REAL_USAGE = {
+    input_tokens: 15513,
+    cache_creation_input_tokens: 24061,
+    cache_read_input_tokens: 11241,
+    cache_creation: { ephemeral_5m_input_tokens: 24061, ephemeral_1h_input_tokens: 0 },
+    output_tokens: 7,
+    service_tier: 'standard',
+    inference_geo: 'not_available',
+    iterations: [],
+    server_tool_use: { web_search_requests: 2, web_fetch_requests: 1 },
+  }
+
+  it('reads a real usage block', () => {
+    const e = parseLine(assistantLine(REAL_USAGE))!
+    expect(e.usage).toEqual({
+      inputTokens: 15513,
+      outputTokens: 7,
+      cacheReadInputTokens: 11241,
+      cacheCreationInputTokens: 24061,
+      cacheCreation5mInputTokens: 24061,
+      cacheCreation1hInputTokens: 0,
+      thinkingTokens: null,
+      webSearchRequests: 2,
+      webFetchRequests: 1,
+      serviceTier: 'standard',
+      inferenceGeo: 'not_available',
+      speed: null,
+    })
+  })
+
+  it('reads the dedup key, which is the message id and not the uuid', () => {
+    const e = parseLine(assistantLine(REAL_USAGE))!
+    expect(e.messageId).toBe('msg_01ABC')
+    expect(e.messageId).not.toBe(e.uuid)
+    expect(e.requestId).toBe('req_011CdxbpqUT1FfWuzvZ9w3Pz')
+  })
+
+  it('reads model and effort', () => {
+    const e = parseLine(assistantLine(REAL_USAGE))!
+    expect(e.model).toBe('claude-opus-5')
+    expect(e.effort).toBe('medium')
+  })
+
+  it('reads thinking tokens when the newer details block is present', () => {
+    const e = parseLine(assistantLine({ ...REAL_USAGE, output_tokens_details: { thinking_tokens: 512 } }))!
+    expect(e.usage?.thinkingTokens).toBe(512)
+  })
+
+  it('handles the older flat shape with no cache_creation split', () => {
+    const e = parseLine(assistantLine({
+      input_tokens: 2, cache_creation_input_tokens: 1132, cache_read_input_tokens: 409146,
+      output_tokens: 251, service_tier: 'standard',
+    }))!
+    expect(e.usage).toMatchObject({
+      cacheCreationInputTokens: 1132,
+      cacheCreation5mInputTokens: 0,
+      cacheCreation1hInputTokens: 0,
+      webSearchRequests: 0,
+    })
+  })
+
+  it('falls back to the 5m+1h split when only the nested block is present', () => {
+    const e = parseLine(assistantLine({
+      input_tokens: 1, output_tokens: 2,
+      cache_creation: { ephemeral_5m_input_tokens: 100, ephemeral_1h_input_tokens: 40 },
+    }))!
+    expect(e.usage?.cacheCreationInputTokens).toBe(140)
+  })
+
+  it('never reads iterations as a count — it is an array', () => {
+    const e = parseLine(assistantLine({ ...REAL_USAGE, iterations: [{ a: 1 }, { b: 2 }] }))!
+    expect(e.usage?.inputTokens).toBe(15513)
+    expect(Object.values(e.usage!).every(v => typeof v !== 'object' || v === null)).toBe(true)
+  })
+
+  it('marks the synthetic sentinel, which is not a real model', () => {
+    const e = parseLine(assistantLine(REAL_USAGE, { message: { model: '<synthetic>', role: 'assistant', content: [] } }))!
+    expect(e.model).toBe('<synthetic>')
+    expect(e.usage).toBeNull()
+  })
+
+  it('marks an api error rendered as an assistant turn', () => {
+    const e = parseLine(assistantLine(REAL_USAGE, { isApiErrorMessage: true }))!
+    expect(e.isApiError).toBe(true)
+  })
+
+  it('degrades to no usage rather than throwing on a wrong-typed block', () => {
+    expect(parseLine(assistantLine(null))!.usage).toBeNull()
+    expect(parseLine(assistantLine('420'))!.usage).toBeNull()
+    expect(parseLine(assistantLine([1, 2]))!.usage).toBeNull()
+  })
+
+  it('reads absent, negative and non-numeric token counts as zero', () => {
+    const e = parseLine(assistantLine({ input_tokens: -5, output_tokens: 'many', cache_read_input_tokens: null }))!
+    expect(e.usage).toMatchObject({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 })
+  })
+
+  it('carries no usage on a user turn', () => {
+    const e = parseLine(JSON.stringify({
+      type: 'user', uuid: 'u1', sessionId: 's1', timestamp: '2026-08-12T10:00:00Z',
+      message: { role: 'user', content: 'hi' },
+    }))!
+    expect(e.usage).toBeNull()
+    expect(e.model).toBeNull()
+    expect(e.isApiError).toBe(false)
+  })
+})

@@ -1,5 +1,6 @@
 import type { SessionSummary } from '../shared/types.js'
 import { STATUS_STYLES, STATUS_LABELS, STATUS_ORDER, elapsed } from '../shared/format.js'
+import { ContextBar } from '../shared/ContextBar.js'
 
 /** `cli` / `sdk-cli` / `bg` — how this process was started. */
 function kindChip(session: SessionSummary): string {
@@ -42,6 +43,10 @@ function LiveRow(
         <span className="w-16 shrink-0 text-right text-xs text-neutral-500">
           {elapsed(session.startedAt)}
         </span>
+      </div>
+
+      <div className="pl-[7.5rem]">
+        <ContextBar usage={session.usage} />
       </div>
 
       {session.lastUserPrompt && (

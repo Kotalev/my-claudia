@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useSessionDetail } from './useSessionDetail.js'
 import { TimelineEntry } from './TimelineEntry.js'
 import { relativeTime, STATUS_STYLES } from '../shared/format.js'
+import { TelemetryPanel } from './TelemetryPanel.js'
 
 export function SessionView(
   { sessionId, liveActivity, onBack }:
@@ -44,6 +45,7 @@ export function SessionView(
             Only the tail of this transcript was loaded — it was already large when the dashboard started.
           </p>
         )}
+        {summary && <TelemetryPanel usage={summary.usage} truncated={summary.historyTruncated} />}
         {loading && <p className="text-neutral-500">Loading…</p>}
         {!loading && entries.length === 0 && <p className="text-neutral-500">No entries parsed yet.</p>}
         {entries.map(e => <TimelineEntry key={e.uuid} entry={e} />)}

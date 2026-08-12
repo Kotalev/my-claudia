@@ -32,6 +32,7 @@ export interface SessionSummary {
   historyTruncated: boolean
   /** The running process behind this session, when there is one. */
   live: LiveProcess | null
+  usage: SessionUsage
 }
 
 export type RunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
@@ -72,4 +73,54 @@ export interface LiveProcess {
   state: LiveState
   /** What the session is waiting for, when Claude Code says. */
   waitingFor: string | null
+}
+
+/** Token counts summed over a set of messages. */
+export interface TokenTotals {
+  inputTokens: number
+  outputTokens: number
+  cacheReadInputTokens: number
+  cacheCreationInputTokens: number
+  cacheCreation5mInputTokens: number
+  cacheCreation1hInputTokens: number
+  webSearchRequests: number
+  webFetchRequests: number
+  /** Distinct API messages counted, after de-duplication. */
+  messages: number
+}
+
+/**
+ * Tokens grouped by everything that changes their price: the model, fast mode,
+ * and the inference geography. Splitting on all three is what keeps the estimate
+ * honest for a session that switched models partway through.
+ */
+export interface RateBucket {
+  model: string
+  speed: string | null
+  inferenceGeo: string | null
+  totals: TokenTotals
+}
+
+export interface SessionUsage {
+  /** The session's own thread. */
+  main: TokenTotals
+  /** Everything its subagents did. Roughly a fifth of all usage in real data. */
+  subagents: TokenTotals
+  total: TokenTotals
+  /**
+   * How full the context window was on the most recent main-thread turn. This
+   * lags by one turn: it is what the model was sent, so a large tool result
+   * arriving after it is not counted until the next request. Null when the
+   * session has not had an assistant turn yet — which is not the same as zero.
+   */
+  contextTokens: number | null
+  contextAt: string | null
+  /** Models seen, newest last. More than one means the session switched. */
+  models: string[]
+  /** Reasoning effort on the most recent turn that stated one. */
+  effort: string | null
+  /** Times the conversation was compacted, from the transcript's own markers. */
+  compactions: number
+  /** Per-model, per-rate totals. The only sound basis for a cost estimate. */
+  byRate: RateBucket[]
 }

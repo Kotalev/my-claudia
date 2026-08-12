@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { normalizeHookEvent, applyHookEvent } from '../ingest.js'
+import { makeEntry } from '../../../../test/helpers/entry.js'
 import { SessionStore } from '../../watcher/session-store.js'
 import type { ProjectRegistry } from '../../registry.js'
 import type { ParseStats } from '../../../transcript/types.js'
@@ -60,11 +61,7 @@ describe('applyHookEvent', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-12T12:00:00.000Z'))
     const store = new SessionStore()
-    store.apply('s1', [{
-      uuid: 'u1', parentUuid: null, sessionId: 's1', timestamp: '2026-08-12T10:00:00.000Z',
-      role: 'user', isSidechain: false, cwd: '/p', gitBranch: null, version: null,
-      text: 'hi', toolCalls: [], isMeta: false, isHumanPrompt: true,
-    }], stats, null)
+    store.apply('s1', [makeEntry({ timestamp: '2026-08-12T10:00:00.000Z', text: 'hi' })], stats, null)
     expect(store.get('s1')!.status).toBe('idle')
 
     applyHookEvent(store, registry, { hook_event_name: 'PostToolUse', session_id: 's1' })

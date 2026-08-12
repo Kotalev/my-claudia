@@ -1,23 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { SessionStore } from '../session-store.js'
-import type { TranscriptEntry, ParseStats } from '../../../transcript/types.js'
+import type { ParseStats } from '../../../transcript/types.js'
 import type { LiveProcess } from '../../../shared/types.js'
+import { makeEntry } from '../../../../test/helpers/entry.js'
 
 const stats: ParseStats = {
   parsed: 0, skippedUnknown: 0, skippedBookkeeping: 0, skippedInvalid: 0, versions: ['2.1.0'],
 }
 
-function entry(over: Partial<TranscriptEntry> = {}): TranscriptEntry {
-  const base: TranscriptEntry = {
-    uuid: 'u1', parentUuid: null, sessionId: 's1', timestamp: '2026-08-12T10:00:00.000Z',
-    role: 'user', isSidechain: false, cwd: '/p', gitBranch: 'main', version: '2.1.0',
-    text: 'do the thing', toolCalls: [], isMeta: false, isHumanPrompt: false, ...over,
-  }
-  // Mirror what the parser would decide, unless a test states it explicitly.
-  return over.isHumanPrompt !== undefined
-    ? base
-    : { ...base, isHumanPrompt: base.role === 'user' && !base.isMeta && !base.isSidechain }
-}
+const entry = makeEntry
 
 afterEach(() => { vi.useRealTimers() })
 

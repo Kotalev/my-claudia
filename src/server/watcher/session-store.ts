@@ -1,5 +1,6 @@
 import type { ParseStats, TranscriptEntry } from '../../transcript/types.js'
 import type { LiveProcess, ProjectRecord, SessionStatus, SessionSummary } from '../../shared/types.js'
+import { UsageAccumulator } from './usage.js'
 
 /** A session with no activity for this long is no longer "active". */
 export const ACTIVE_WINDOW_MS = 5 * 60 * 1000
@@ -23,6 +24,7 @@ interface SessionState {
    * time-decay rule can ever know.
    */
   wasLive: boolean
+  usage: UsageAccumulator
 }
 
 /**
@@ -54,7 +56,7 @@ export class SessionStore {
         entries: [], lastStatus: null, hookActivity: null, historyTruncated: false,
         seen: new Set(), ended: false,
         project: null, versions: new Set(), skippedUnknown: 0,
-        live: null, wasLive: false,
+        live: null, wasLive: false, usage: new UsageAccumulator(),
       }
       this.#sessions.set(sessionId, s)
     }
@@ -76,6 +78,7 @@ export class SessionStore {
       if (state.seen.has(e.uuid)) continue   // re-read after truncation must not double-count
       state.seen.add(e.uuid)
       state.entries.push(e)
+      state.usage.add(e)
     }
     const summary = this.#summarize(sessionId, state)
     state.lastStatus = summary.status
@@ -220,6 +223,7 @@ export class SessionStore {
       skippedUnknown: state.skippedUnknown,
       historyTruncated: state.historyTruncated,
       live: state.live,
+      usage: state.usage.snapshot(),
     }
   }
 }
