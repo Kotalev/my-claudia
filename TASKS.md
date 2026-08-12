@@ -2,7 +2,6 @@
 
 ## Todo
 
-- [ ] **T-006** Session view: parsed timeline with auto-follow tail for active sessions `#m1` `#p2`
 - [ ] **T-007** M1 smoke test: dashboard shows a real live Claude Code session end-to-end; write findings into Progress log `#m1` `#p1`
 - [ ] **T-008** TASKS.md parser + serializer in `src/tasks/` with round-trip test (SPEC §5 format) `#m2` `#p1`
 - [ ] **T-009** Task board UI (todo / in progress / done) + new-task form; `POST`/`PATCH` task endpoints writing line-based edits to TASKS.md `#m2` `#p1`
@@ -17,6 +16,7 @@
 
 ## Done
 
+- [x] **T-006** Session view: parsed timeline with auto-follow tail for active sessions `#m1` `#p2` (2026-08-12)
 - [x] **T-005** WebSocket `/api/events` pushing `session.updated`; Overview screen with project cards + live session status `#m1` `#p1` (2026-08-12)
 - [x] **T-004** SessionWatcher: chokidar on `${CLAUDE_CONFIG_DIR:-~/.claude}/projects/**`, incremental tail by byte offset, per-session summary (status, last activity, files touched) `#m1` `#p1` (2026-08-12)
 - [x] **T-003** Defensive transcript parser in `src/transcript/`: extract timestamp, role, text, tool calls, file paths; skip unknown lines; Vitest with real + malformed fixtures `#m1` `#p1` (2026-08-12)
@@ -25,6 +25,7 @@
 
 ## Progress log
 
+- 2026-08-12 11:31 T-006 — Session view verified in browser: 406 entries, tool paths, subagent tags, no thinking leaked.
 - 2026-08-12 11:30 T-005 — Overview live in browser: this session visible, msg count rises with no reload. WS path is /ws.
 - 2026-08-12 11:27 T-004 — Watcher live: 54 sessions, this one active. chokidar 5 has no globs; bounded backfill (7d/1MB) added.
 - 2026-08-12 11:23 T-003 — Parser done: 14 line types seen in real data, 3 skip buckets, thinking never surfaced. 11 tests.
