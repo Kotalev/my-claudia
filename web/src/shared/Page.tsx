@@ -22,7 +22,7 @@ export function Container(
  */
 export function Page({ children }: { children: ReactNode }) {
   return (
-    <main className="min-h-dvh bg-neutral-950 p-4 text-neutral-100 sm:p-6 lg:p-8">
+    <main className="min-h-dvh bg-neutral-950 p-4 text-neutral-200 sm:p-6 lg:p-8">
       <Container>{children}</Container>
     </main>
   )

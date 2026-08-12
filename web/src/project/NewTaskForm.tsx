@@ -40,20 +40,20 @@ export function NewTaskForm({ onCreate }: { onCreate: (title: string, tags: stri
           // `outline-none` used to be here with only a neutral-800 → 600 border
           // shift as the replacement: 1.23:1 against the field, so a keyboard
           // user could not see where they were.
-          className={`min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm ${FOCUS_RING} focus:border-neutral-600`}
+          className={`min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-2.5 text-sm ${FOCUS_RING} focus:border-info`}
         />
         <button
           data-testid="new-task-submit"
           disabled={busy || title.trim().length === 0}
-          className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-900 disabled:opacity-40 ${FOCUS_RING}`}
+          className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-875 px-4 py-2.5 font-mono text-xs text-neutral-200 hover:bg-neutral-800 disabled:opacity-40 ${FOCUS_RING}`}
         >
-          <Plus aria-hidden="true" className="size-4" />
+          <Plus aria-hidden="true" className="size-3.5" />
           Add
         </button>
       </form>
       {/* The placeholder was the only mention of the #tag convention, and it
           disappeared on the first keystroke. */}
-      <p id="new-task-hint" className="text-xs text-faint">
+      <p id="new-task-hint" className="font-mono text-[11px] text-dim">
         Type #tags inline; they are stripped from the title.
       </p>
       {error && <ErrorLine testId="new-task-error" className="text-xs">{error}</ErrorLine>}

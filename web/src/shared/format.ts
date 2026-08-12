@@ -8,17 +8,14 @@ export function relativeTime(iso: string): string {
   return `${Math.floor(diff / 86_400_000)}d ago`
 }
 
-// Typed against SessionStatus on purpose: as Record<string, string> a new status
-// renders a colourless dot in three places with no compile error.
-export const STATUS_STYLES: Record<SessionStatus, string> = {
-  waiting: 'bg-amber-400 animate-pulse motion-reduce:animate-none',
-  active: 'bg-emerald-500 animate-pulse motion-reduce:animate-none',
-  idle: 'bg-muted',
-  // Outline rather than fill. `bg-neutral-700` was 1.9:1 against the page —
-  // below the 3:1 floor for a non-text indicator, and next to the
-  // neutral-800 borders it read as an empty slot. This way idle and done
-  // differ by form as well as by luminance, which colour cannot take away.
-  done: 'border border-muted bg-transparent',
+// Typed against SessionStatus on purpose: as Record<string, string> a new
+// status renders colourless in several places with no compile error. The hue
+// pairs with the motion the StatusDot carries for the same state.
+export const STATUS_TEXT: Record<SessionStatus, string> = {
+  waiting: 'text-alarm',
+  active: 'text-work',
+  idle: 'text-muted',
+  done: 'text-dim',
 }
 
 export const STATUS_LABELS: Record<SessionStatus, string> = {

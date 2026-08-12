@@ -1,32 +1,119 @@
 @import "tailwindcss";
 
 /*
- * Dark-only UI on neutral-950. The two text tokens exist because the raw
- * neutral ramp has no caption colour that clears WCAG AA: neutral-500 is
- * 4.18:1 on the page ground and 3.96:1 on a bg-neutral-900/60 card, and it is
- * used almost exclusively at text-xs. Every honesty caveat in this app is a
- * caption, so the caption colour is a correctness concern, not a taste one.
+ * Dark-only UI on the redesign palette (claude.ai/design "Mission Control").
+ * Two layers of tokens:
+ *
+ * 1. The stock ramps are REMAPPED to the design's values, so every existing
+ *    `neutral-*` / `emerald-*` / `amber-*` / `sky-*` class lands on the new
+ *    palette rather than stock Tailwind gray-blue. This is the safety net —
+ *    a class nobody touched still cannot render an off-palette colour.
+ * 2. Semantic tokens (`work`, `alarm`, `info`, `danger`, `muted`, `faint`)
+ *    name the roles the design system assigns; new code uses these.
  */
 @theme {
-  /* Captions and caveats. ~5.5:1 on neutral-950, ~5.2:1 on a neutral-900/60 card. */
-  --color-faint: oklch(0.62 0 0);
+  /* Archivo carries the redesign; Martian Mono is the instrument voice.
+     Both are SIL OFL via Google Fonts — free, commercial use included. */
+  --font-sans: "Archivo", system-ui, sans-serif;
+  --font-mono: "Martian Mono", ui-monospace, monospace;
 
-  /* Secondary text, and the resting state of controls that hover to white:
-     they must be legible before the pointer arrives. Same value as neutral-400. */
-  --color-muted: oklch(0.708 0 0);
+  /* Grounds and edges. 950 page · 900 card · 800 edge · 700 chip border. */
+  --color-neutral-950: #08090a;
+  --color-neutral-925: #0a0b0c; /* panel — between page and card */
+  --color-neutral-900: #0e1011;
+  --color-neutral-875: #16191a; /* hairline dividers, hover ground, meter troughs */
+  --color-neutral-800: #1c1e20;
+  --color-neutral-700: #23282a;
+  --color-neutral-600: #2e3436;
+  --color-neutral-500: #6f7477;
+  --color-neutral-400: #9aa0a4;
+  --color-neutral-300: #c9ced1;
+  --color-neutral-200: #e8e9ea;
+  --color-neutral-100: #f7f8f8;
 
-  /* One focus colour for the whole app. Identical to sky-500. */
-  --color-focus: oklch(0.685 0.169 237.323);
+  /*
+   * Captions and caveats — the honesty layer must stay legible. The mock's
+   * darkest grays (#6f7477, #4c5457) measure 4.1:1 and 2.6:1 on this ground;
+   * both are used as 10–12px text, so they are lifted to clear WCAG AA while
+   * keeping the dim < faint < muted < body hierarchy.
+   */
+  --color-faint: #8b9195; /* ~6:1 on the page, ~5.9:1 on a card */
+  /* Secondary text and resting controls that hover to white. ~7.4:1. */
+  --color-muted: #9aa0a4;
+  /* Below faint: metadata that is present but recedes (timestamps in done rows). ~4.9:1. */
+  --color-dim: #7b8187;
 
-  /* The two page measures. `page` governs the dashboards; `reading` caps the
-     transcript so a 1440px window stops producing 190-character lines. */
+  /*
+   * The state accents. Motion and colour are assigned together:
+   * work (green) moves, alarm (amber) pulses, idle/done are static.
+   */
+  --color-work: #3ddc84;
+  --color-work-edge: #1f8f57; /* the left rail of a working row */
+  --color-alarm: #f5a742;
+  --color-info: #4d9dff; /* meters, the user's own turns, follow */
+  --color-danger: #f2604f;
+
+  /* Remap the stock accent ramps onto the same five hues (safety net). */
+  --color-emerald-400: #3ddc84;
+  --color-emerald-500: #3ddc84;
+  --color-emerald-600: #1f8f57;
+  --color-amber-400: #f5a742;
+  --color-amber-500: #f5a742;
+  --color-sky-300: #8dc2ff;
+  --color-sky-500: #4d9dff;
+  --color-red-300: #f2604f;
+  --color-red-400: #f2604f;
+
+  /* One focus colour for the whole app — the info accent. */
+  --color-focus: #4d9dff;
+
+  /* The two page measures (unchanged from the previous pass). */
   --container-page: 88rem;
   --container-reading: 64rem;
 
-  /* The LiveBand sub-row indent, derived rather than hand-copied:
-     dot(0.5) + gap(0.5) + label w-28(7) + gap(0.5). The literal `pl-[7.5rem]`
-     it replaces was a full rem short of that, in three places. */
-  --live-indent: calc(0.5rem + 0.5rem + 7rem + 0.5rem);
+  /* The LiveBand sub-row indent: dot(0.875) + gap. The orbit dot is 14px wide. */
+  --live-indent: calc(0.875rem + 0.875rem);
+
+  /*
+   * The motion vocabulary. Every animation means exactly one thing:
+   *   orbit    — working: a dot with a ring in continuous, calm rotation
+   *   pulse    — waiting: an expanding ping that demands the eye
+   *   breathe  — connected: the socket's own slow heartbeat
+   *   shimmer  — streaming: light moving across a working meter
+   *   caret    — the live tail of a transcript, a terminal cursor
+   *   beacon   — waiting containers: a soft amber ring in phase with pulse
+   */
+  --animate-orbit: mc-orbit 1.4s linear infinite;
+  --animate-pulse-ping: mc-pulse 1.3s cubic-bezier(0.2, 0.7, 0.3, 1) infinite;
+  --animate-breathe: mc-breathe 2.6s ease-in-out infinite;
+  --animate-shimmer: mc-shimmer 2.4s linear infinite;
+  --animate-caret: mc-caret 1.1s step-end infinite;
+  --animate-beacon: mc-beacon 1.3s ease-in-out infinite;
+
+  @keyframes mc-orbit {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  @keyframes mc-pulse {
+    0% { transform: scale(1); opacity: 0.55; }
+    70%, 100% { transform: scale(2.6); opacity: 0; }
+  }
+  @keyframes mc-breathe {
+    0%, 100% { opacity: 0.45; }
+    50% { opacity: 1; }
+  }
+  @keyframes mc-shimmer {
+    from { background-position: -140% 0; }
+    to { background-position: 240% 0; }
+  }
+  @keyframes mc-caret {
+    0%, 45% { opacity: 1; }
+    50%, 100% { opacity: 0; }
+  }
+  @keyframes mc-beacon {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(245 167 66 / 0); }
+    50% { box-shadow: 0 0 0 3px rgb(245 167 66 / 0.18); }
+  }
 }
 
 @layer base {
@@ -39,8 +126,9 @@
   html,
   body {
     background-color: var(--color-neutral-950);
-    color: var(--color-neutral-100);
+    color: var(--color-neutral-200);
     color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
   }
 
   /*
@@ -61,5 +149,18 @@
   /* Disabled says "not now", which is not the same as "not a control". */
   button:disabled {
     cursor: not-allowed;
+  }
+
+  /*
+   * Motion encodes state, so removing it must not remove the state: reduced
+   * motion stops the movement while the colour and form of each indicator
+   * still say working / waiting / idle.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+    }
   }
 }

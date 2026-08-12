@@ -21,7 +21,7 @@ export function NotifyButton() {
 
   if (state.perm === 'denied') {
     return (
-      <span data-testid="notify-toggle" className="inline-flex items-center gap-1.5 text-xs text-faint">
+      <span data-testid="notify-toggle" className="inline-flex items-center gap-1.5 font-mono text-[11.5px] text-faint">
         <BellOff aria-hidden="true" className="size-3.5" />
         {label}
       </span>
@@ -47,7 +47,7 @@ export function NotifyButton() {
       data-testid="notify-toggle"
       {...(state.perm === 'granted' ? { 'aria-pressed': state.on } : {})}
       onClick={() => { void click() }}
-      className={`inline-flex items-center gap-1.5 rounded text-xs ${state.on ? 'text-neutral-300' : 'text-muted'} hover:text-neutral-100 ${FOCUS_RING}`}
+      className={`inline-flex items-center gap-1.5 rounded-md border border-neutral-700 px-3 py-[7px] font-mono text-[11.5px] ${state.on ? 'text-neutral-200' : 'text-muted'} hover:bg-neutral-875 hover:text-neutral-200 ${FOCUS_RING}`}
     >
       {state.perm === 'granted' && state.on
         ? <BellRing aria-hidden="true" className="size-3.5" />

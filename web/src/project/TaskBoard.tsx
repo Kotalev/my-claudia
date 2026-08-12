@@ -4,9 +4,9 @@ import type { Task, TaskStatus, TasksDoc } from '../shared/types.js'
 import { FOCUS_RING } from '../shared/focus.js'
 
 const COLUMNS: { status: TaskStatus; label: string }[] = [
-  { status: 'todo', label: 'Todo' },
-  { status: 'in-progress', label: 'In progress' },
-  { status: 'done', label: 'Done' },
+  { status: 'todo', label: 'todo' },
+  { status: 'in-progress', label: 'in progress' },
+  { status: 'done', label: 'done' },
 ]
 
 export const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
@@ -32,13 +32,24 @@ function TaskCard(
   // Advancing a done task rewrites the user's TASKS.md back to Todo with no
   // undo, from an 18px target whose accessible name was literally "[x]".
   const [confirming, setConfirming] = useState(false)
+  const inProgress = task.status === 'in-progress'
 
   return (
     <article
       data-testid="task-card"
-      className="rounded-lg border border-neutral-800 bg-neutral-900/60 p-3"
+      className={`rounded-[9px] p-3.5 ${inProgress
+        ? 'border border-[#1a201d] border-l-[3px] border-l-work-edge bg-neutral-900'
+        : 'border border-neutral-800 bg-neutral-900'}`}
     >
-      <div className="flex items-start gap-2">
+      <div className="flex items-start gap-2.5">
+        {/* An in-progress task is a working element: the orbit sits beside the
+            id, exactly as it does on a working session row. */}
+        {inProgress && (
+          <span aria-hidden="true" className="relative mt-1 size-[11px] shrink-0">
+            <span className="absolute -inset-0.5 animate-orbit rounded-full border-[1.5px] border-transparent border-t-work" />
+            <span className="absolute top-1/2 left-1/2 size-1.5 -translate-1/2 rounded-full bg-work" />
+          </span>
+        )}
         <button
           type="button"
           data-testid="task-advance"
@@ -55,39 +66,56 @@ function TaskCard(
           }}
           // Negative margin keeps the visual alignment while the padding
           // enlarges the hit box to something a finger can find.
-          className={`-m-1 mt-0 shrink-0 rounded p-1 font-mono text-xs text-faint hover:text-neutral-200 ${FOCUS_RING}`}
+          className={`-m-1 mt-0 shrink-0 rounded p-1 font-mono text-[11px] text-faint hover:text-neutral-200 ${FOCUS_RING}`}
         >
           {confirming ? 'reopen?' : CHECKBOX[task.status]}
         </button>
         <div className="min-w-0 flex-1">
-          <p className="text-sm text-neutral-200">
-            <span className="font-mono text-xs text-faint">{task.id}</span> {task.title}
+          <p className="text-[13.5px] leading-[1.45] text-neutral-100">
+            <span className="font-mono text-[11px] text-faint">{task.id}</span> {task.title}
           </p>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <div className="mt-2 flex flex-wrap items-center gap-[7px] font-mono text-[10.5px] text-faint">
             {task.tags.map(tag => (
-              <span key={tag} className="rounded bg-neutral-800 px-1.5 py-0.5 text-xs text-muted">
+              <span key={tag} className="rounded border border-neutral-700 px-1.5 py-px">
                 #{tag}
               </span>
             ))}
-            {task.note && <span className="text-xs text-faint italic">{task.note}</span>}
-            {task.doneDate && <span className="text-xs text-faint">{task.doneDate}</span>}
+            {task.note && <span className="italic">{task.note}</span>}
+            {task.doneDate && <span>{task.doneDate}</span>}
+            {onDispatch && task.status !== 'done' && (
+              <button
+                data-testid="dispatch-button"
+                onClick={() => onDispatch(task)}
+                disabled={dispatchBusy}
+                title={dispatchBusy ? 'A run is already active for this project' : undefined}
+                className={`ml-auto inline-flex shrink-0 items-center gap-1.5 rounded border border-work/30 px-[7px] py-0.5 text-work hover:bg-work/10 disabled:opacity-40 ${FOCUS_RING}`}
+              >
+                <Play aria-hidden="true" className={`size-2.5 ${running ? 'animate-pulse' : ''}`} />
+                {running ? 'running…' : 'run'}
+              </button>
+            )}
           </div>
         </div>
-        {onDispatch && task.status !== 'done' && (
-          <button
-            data-testid="dispatch-button"
-            onClick={() => onDispatch(task)}
-            disabled={dispatchBusy}
-            title={dispatchBusy ? 'A run is already active for this project' : undefined}
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800 disabled:opacity-40 ${FOCUS_RING}`}
-          >
-            <Play aria-hidden="true" className={`size-3 ${running ? 'animate-pulse motion-reduce:animate-none' : ''}`} />
-            {running ? 'Running…' : 'Run'}
-          </button>
-        )}
       </div>
     </article>
   )
+}
+
+/** A done task at archive weight: one line, id + title, nothing interactive. */
+function DoneRow({ task }: { task: Task }) {
+  return (
+    <div className="flex items-baseline gap-2.5 px-1 py-[7px]">
+      <span className="shrink-0 font-mono text-[10.5px] text-dim">{task.id}</span>
+      <span className="truncate text-[12.5px] text-muted">{task.title}</span>
+      {task.doneDate && <span className="ml-auto shrink-0 font-mono text-[10.5px] text-dim">{task.doneDate}</span>}
+    </div>
+  )
+}
+
+const COLUMN_HEADER: Record<TaskStatus, { border: string; label: string }> = {
+  todo: { border: 'border-neutral-800', label: 'text-neutral-300' },
+  'in-progress': { border: 'border-work-edge', label: 'text-work' },
+  done: { border: 'border-neutral-800', label: 'text-faint' },
 }
 
 export function TaskBoard(
@@ -108,30 +136,63 @@ export function TaskBoard(
   },
 ) {
   const empty = !loading && doc.tasks.length === 0
+  // DONE is archive: it used to visually dominate as the only filled column.
+  // Compact rows by default; "expand" restores the full cards (and with them
+  // the reopen control).
+  const [doneExpanded, setDoneExpanded] = useState(false)
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {COLUMNS.map(col => {
         const tasks = doc.tasks.filter(t => t.status === col.status)
+        const done = col.status === 'done'
+        const header = COLUMN_HEADER[col.status]
         return (
-          <section key={col.status} data-testid={`column-${col.status}`} className="min-w-0">
-            <h3 className="mb-2 text-xs font-medium tracking-wide uppercase text-muted">{col.label}</h3>
-            <div className="space-y-2">
+          // No opacity trick on DONE: the receded text tokens already carry
+          // the archive weight, and opacity would push them below AA.
+          <section
+            key={col.status}
+            data-testid={`column-${col.status}`}
+            className="min-w-0"
+          >
+            <h3 className={`mb-2.5 flex items-center gap-2 border-b pb-2 font-mono text-[10.5px] font-medium tracking-[0.14em] uppercase ${header.border} ${header.label}`}>
+              {col.label}
+              <span className="text-[11px] font-normal tracking-normal text-faint">{tasks.length}</span>
+              {done && tasks.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setDoneExpanded(v => !v)}
+                  className={`ml-auto rounded font-mono text-[10.5px] font-normal tracking-normal normal-case text-faint hover:text-muted ${FOCUS_RING}`}
+                >
+                  {doneExpanded ? 'collapse' : 'expand'}
+                </button>
+              )}
+            </h3>
+            <div className={done && !doneExpanded ? 'space-y-0.5' : 'space-y-2.5'}>
               {loading && [0, 1].map(i => (
-                <div key={i} className="h-14 animate-pulse rounded-lg bg-neutral-900 motion-reduce:animate-none" />
+                <div key={i} className="h-14 animate-pulse rounded-[9px] bg-neutral-900" />
               ))}
-              {!loading && tasks.map(task => (
-                <TaskCard
-                  key={task.id}
-                  task={task}
-                  onAdvance={onAdvance}
-                  onDispatch={onDispatch}
-                  dispatchBusy={dispatchBusy}
-                  running={runningTaskId === task.id}
-                />
+              {!loading && (done && !doneExpanded ? tasks.slice(0, 8) : tasks).map(task => (
+                done && !doneExpanded
+                  ? <DoneRow key={task.id} task={task} />
+                  : (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        onAdvance={onAdvance}
+                        onDispatch={onDispatch}
+                        dispatchBusy={dispatchBusy}
+                        running={runningTaskId === task.id}
+                      />
+                    )
               ))}
+              {!loading && done && !doneExpanded && tasks.length > 8 && (
+                <p className="px-1 py-1.5 font-mono text-[10.5px] text-dim">
+                  + {tasks.length - 8} more — expand to see the archive
+                </p>
+              )}
               {!loading && !empty && tasks.length === 0 && (
-                <p className="px-3 py-2 text-xs text-faint">Nothing here</p>
+                <p className="px-3 py-2 font-mono text-[11px] text-dim">Nothing here</p>
               )}
             </div>
           </section>
@@ -141,7 +202,7 @@ export function TaskBoard(
       {empty && (
         // Naming the source of truth: this board is a file in the project, and
         // a user who does not know that reads three empty columns as a bug.
-        <p className="rounded-lg border border-dashed border-neutral-800 px-4 py-6 text-sm text-faint sm:col-span-2 xl:col-span-3">
+        <p className="rounded-[9px] border border-dashed border-neutral-800 px-4 py-6 text-sm text-faint sm:col-span-2 xl:col-span-3">
           No tasks yet — this board is <code>TASKS.md</code> in the project root. Add one above and
           it will be written there.
         </p>

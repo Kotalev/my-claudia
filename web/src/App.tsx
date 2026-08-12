@@ -22,14 +22,17 @@ export function App() {
   const project = live.projects.find(p => p.id === route.projectId)
 
   // Screen readers announce a title change; without this every screen is
-  // "Mission Control" and navigation is silent.
+  // "Mission Control" and navigation is silent. A session waiting on the user
+  // additionally prefixes the tab title, so the alarm reaches a hidden tab.
+  const waiting = live.sessions.filter(s => s.status === 'waiting').length
   useEffect(() => {
-    document.title = route.sessionId
+    const base = route.sessionId
       ? `Session ${route.sessionId.slice(0, 8)} — Mission Control`
       : project
         ? `${project.name} — Mission Control`
         : 'Mission Control'
-  }, [project, route.sessionId])
+    document.title = waiting > 0 ? `(${waiting}) ● ${base}` : base
+  }, [project, route.sessionId, waiting])
 
   if (route.sessionId) {
     const summary = live.sessions.find(s => s.sessionId === route.sessionId)

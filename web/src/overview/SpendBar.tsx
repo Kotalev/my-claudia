@@ -1,4 +1,3 @@
-import { DollarSign } from 'lucide-react'
 import type { SpendSummary } from '../shared/types.js'
 import { PRICES_VERIFIED_ON } from '@shared/pricing.js'
 
@@ -7,19 +6,25 @@ function usd(v: number): string {
   return v < 10 ? `$${v.toFixed(2)}` : `$${Math.round(v)}`
 }
 
-function Figure({ label, value }: { label: string; value: number | null }) {
+function Figure(
+  { label, value, lead = false }: { label: string; value: number | null; lead?: boolean },
+) {
   // Null is "nothing priceable", not zero (SPEC pricing policy): show n/a.
   return (
-    <span className="text-xs text-muted">
-      {label} <span className="text-neutral-100">{value === null ? 'n/a' : usd(value)}</span>
+    <span className="flex flex-col gap-1 font-mono">
+      <span className={`tabular-nums ${lead ? 'text-[22px] text-neutral-200' : 'text-[17px] text-muted'}`}>
+        {value === null ? 'n/a' : usd(value)}
+      </span>
+      <span className="text-[11px] text-faint">{label}</span>
     </span>
   )
 }
 
 /**
  * Account spend across registered projects, priced from transcripts. An
- * estimate at list prices, never a bill — the tooltip says so. Hidden until
- * the ledger has priced anything at all.
+ * estimate at list prices, never a bill — the ⓘ caption says so. Hidden until
+ * the ledger has priced anything at all. Today leads at instrument size; the
+ * longer windows follow smaller.
  */
 export function SpendBar({ spend }: { spend: SpendSummary | null }) {
   if (!spend) return null
@@ -31,16 +36,25 @@ export function SpendBar({ spend }: { spend: SpendSummary | null }) {
   return (
     <section
       data-testid="spend-bar"
-      title={`list prices, verified ${PRICES_VERIFIED_ON}; estimate, not a bill`}
-      className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-1"
+      className="flex min-w-0 flex-col gap-4 rounded-xl border border-neutral-800 bg-neutral-925 p-5"
     >
-      <h2 className="flex items-center gap-1.5 text-xs font-semibold tracking-wide uppercase text-muted"><DollarSign aria-hidden="true" className="size-3.5" />Spend</h2>
-      <Figure label="today" value={spend.todayUsd} />
-      <span aria-hidden="true" className="text-xs text-faint">·</span>
-      <Figure label="7d" value={spend.sevenDayUsd} />
-      <span aria-hidden="true" className="text-xs text-faint">·</span>
-      <Figure label="30d" value={spend.thirtyDayUsd} />
-      {spend.unpricedModels.length > 0 && <span className="text-xs text-faint">+ unpriced</span>}
+      <div className="flex flex-wrap items-baseline justify-between gap-2 font-mono">
+        <h2 className="text-[10.5px] font-medium tracking-[0.14em] uppercase text-faint">Spend</h2>
+        <span
+          className="cursor-help border-b border-dotted border-neutral-600 text-[11px] text-dim"
+          title={`Estimated from tokens at API list prices (verified ${PRICES_VERIFIED_ON}). Subscription plans bill differently — this is not a bill.`}
+        >
+          list-price estimate ⓘ
+        </span>
+      </div>
+      <div className="flex flex-wrap items-end gap-8">
+        <Figure label="today" value={spend.todayUsd} lead />
+        <Figure label="7d" value={spend.sevenDayUsd} />
+        <Figure label="30d" value={spend.thirtyDayUsd} />
+        {spend.unpricedModels.length > 0 && (
+          <span className="pb-0.5 font-mono text-[11px] text-faint">+ unpriced</span>
+        )}
+      </div>
     </section>
   )
 }

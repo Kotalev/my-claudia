@@ -47,29 +47,36 @@ export function HooksBadge({ projectId }: { projectId: string }) {
   if (installed === null) return null
 
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs">
-      <span
-        data-testid="hooks-status"
-        className={`inline-flex items-center gap-1.5 ${installed ? 'text-emerald-400' : 'text-muted'}`}
-      >
-        {installed
-          ? <CircleCheck aria-hidden="true" className="size-3.5" />
-          : <Plug aria-hidden="true" className="size-3.5" />}
-        {installed ? 'hooks installed' : 'hooks not installed'}
-      </span>
+    <div className="flex flex-wrap items-center gap-2.5 font-mono text-[11px]">
+      {installed
+        ? (
+            <span data-testid="hooks-status" className="inline-flex items-center gap-1.5 text-work">
+              <CircleCheck aria-hidden="true" className="size-3.5" />
+              hooks installed
+            </span>
+          )
+        : (
+            <span
+              data-testid="hooks-status"
+              className="inline-flex items-center gap-[7px] rounded-md border border-alarm/25 bg-alarm/5 px-2.5 py-[5px] text-alarm"
+            >
+              <span aria-hidden="true" className="size-1.5 rounded-full bg-alarm" />
+              hooks not installed
+            </span>
+          )}
       {!installed && (
         <>
           <button
             data-testid="install-hooks"
             onClick={install}
             disabled={busy}
-            className={`inline-flex items-center gap-1.5 rounded border border-neutral-700 px-2 py-0.5 text-neutral-300 hover:bg-neutral-800 disabled:opacity-40 ${FOCUS_RING}`}
+            className={`inline-flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-875 px-2.5 py-[5px] text-[11.5px] text-neutral-200 hover:bg-neutral-800 disabled:opacity-40 ${FOCUS_RING}`}
           >
             <Plug aria-hidden="true" className="size-3" />
             {busy ? 'installing…' : 'Install hooks'}
           </button>
           {/* The backup was only mentioned after the write. */}
-          <span className="text-faint">writes .claude/settings.local.json (backed up first)</span>
+          <span className="text-dim">writes .claude/settings.local.json (backed up first)</span>
         </>
       )}
       {error && <ErrorLine testId="hooks-error" className="text-xs">install failed — {error}</ErrorLine>}

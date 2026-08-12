@@ -22,36 +22,38 @@ export function ProjectCard(
     <section
       data-testid="project-card"
       aria-labelledby={`project-${project.id}`}
-      className="min-w-0 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4"
+      className="min-w-0 rounded-[10px] border border-neutral-800 bg-neutral-900 p-2 pb-3"
     >
-      <header className="mb-3 flex items-center justify-between gap-2">
-        <h2 id={`project-${project.id}`} className="min-w-0 text-base font-medium">
+      <header className="flex items-center justify-between gap-2 px-3 pt-3 pb-3.5">
+        <h2 id={`project-${project.id}`} className="flex min-w-0 items-baseline gap-2.5 text-base font-semibold">
           <button
             onClick={() => onOpenProject(project.id)}
             data-testid="project-open"
-            className={`max-w-full truncate rounded text-neutral-100 hover:text-white hover:underline ${FOCUS_RING}`}
+            className={`max-w-full truncate rounded ${active > 0 ? 'text-neutral-100' : 'text-neutral-300'} hover:underline ${FOCUS_RING}`}
           >
             {project.name}
           </button>
+          <span className="shrink-0 font-mono text-[11.5px] font-normal">
+            {active > 0
+              ? <><span className="text-work">{active} active</span><span className="text-faint"> · {sessions.length} total</span></>
+              : <span className="text-faint">{active} active · {sessions.length} total</span>}
+          </span>
         </h2>
-        <div className="flex shrink-0 items-center gap-1">
-          <span className="text-xs text-faint">{active} active · {sessions.length} total</span>
-          <button
-            data-testid="project-remove"
-            title={`Unregister ${project.path} (the directory is not touched)`}
-            onClick={() => {
-              if (confirm(`Unregister ${project.name}?\n\n${project.path}\n\nOnly the dashboard entry is removed — nothing on disk is deleted.`)) {
-                onRemove(project.id)
-              }
-            }}
-            className={`-mr-2 inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted hover:bg-red-950/40 hover:text-red-300 ${FOCUS_RING}`}
-          >
-            <Trash2 aria-hidden="true" className="size-3.5" />
-            remove
-          </button>
-        </div>
+        <button
+          data-testid="project-remove"
+          title={`Unregister ${project.path} (the directory is not touched)`}
+          onClick={() => {
+            if (confirm(`Unregister ${project.name}?\n\n${project.path}\n\nOnly the dashboard entry is removed — nothing on disk is deleted.`)) {
+              onRemove(project.id)
+            }
+          }}
+          className={`inline-flex shrink-0 items-center gap-1.5 rounded px-1.5 py-1 font-mono text-[11px] text-faint hover:bg-neutral-875 hover:text-danger ${FOCUS_RING}`}
+        >
+          <Trash2 aria-hidden="true" className="size-3" />
+          remove
+        </button>
       </header>
-      <div className="space-y-1">
+      <div className="space-y-[3px]">
         {sessions.length === 0
           ? <p className="px-3 py-2 text-sm text-faint">No sessions yet.</p>
           : sessions.slice(0, 6).map(s => <SessionRow key={s.sessionId} session={s} onOpen={onOpenSession} />)}

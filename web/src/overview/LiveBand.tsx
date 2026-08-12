@@ -1,6 +1,5 @@
-import { Radio } from 'lucide-react'
 import type { ProjectRecord, SessionSummary } from '../shared/types.js'
-import { STATUS_LABELS, STATUS_ORDER, elapsed } from '../shared/format.js'
+import { STATUS_LABELS, STATUS_ORDER, STATUS_TEXT, elapsed } from '../shared/format.js'
 import { ContextBar } from '../shared/ContextBar.js'
 import { StatusDot } from '../shared/StatusDot.js'
 import { FOCUS_RING } from '../shared/focus.js'
@@ -35,54 +34,66 @@ interface LiveGroup {
   sessions: SessionSummary[]
 }
 
-/**
- * The sub-rows hang under the status label. The indent used to be a literal
- * `pl-[7.5rem]` in three places, a full rem short of the real dot+gap+label+gap
- * offset — and below `sm` the label column is auto-width, so any fixed indent
- * aligns to nothing at all.
- */
+/** The sub-rows hang under the indicator: dot width + gap, from the token layer. */
 const SUB_ROW = 'pl-0 sm:pl-[var(--live-indent)]'
 
+/**
+ * One live process. State carries the whole treatment: a working row gets the
+ * green rail and an orbiting indicator; a waiting row is the alarm — amber
+ * ground, a pulsing dot and a beacon ring in phase with it, sorted above
+ * everything else by the existing status order.
+ */
 function LiveRow(
   { session, onOpen }: { session: SessionSummary; onOpen: (id: string) => void },
 ) {
   const live = session.live
+  const status = session.status
+  const waiting = status === 'waiting'
+  const surface = waiting
+    ? 'animate-beacon border border-alarm/30 border-l-[3px] border-l-alarm bg-alarm/5'
+    : status === 'active'
+      ? 'border border-[#1a201d] border-l-[3px] border-l-work-edge bg-neutral-900'
+      : 'border border-neutral-800 border-l-[3px] border-l-transparent bg-neutral-900'
+
   return (
     <button
       type="button"
       data-testid="live-row"
       onClick={() => onOpen(session.sessionId)}
-      className={`flex w-full flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-900/60 px-4 py-3 text-left transition hover:border-neutral-700 hover:bg-neutral-900 focus-visible:border-neutral-700 focus-visible:bg-neutral-900 ${FOCUS_RING}`}
+      className={`flex w-full items-start gap-3.5 rounded-[9px] px-4 py-3.5 text-left transition hover:border-neutral-700 focus-visible:border-neutral-700 ${surface} ${FOCUS_RING}`}
     >
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <StatusDot status={session.status} labelled />
-        {/* w-auto below sm: "waiting for you" sizes to its text rather than
-            claiming 7rem of a 390px viewport. */}
-        <span className="w-auto shrink-0 whitespace-nowrap text-neutral-300 sm:w-28">
-          {STATUS_LABELS[session.status]}
+      <StatusDot status={status} labelled className="mt-0.5" />
+      <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <span className="flex items-baseline gap-3.5">
+          <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            {/* The session's own name leads: /rename rewrites it in the
+                registry file, so it is the one label the user controls. */}
+            {live?.name && (
+              <>
+                <span className={`max-w-48 shrink-0 truncate font-mono text-[13px] ${STATUS_TEXT[status]}`}>
+                  {live.name}
+                </span>
+                <span aria-hidden="true" className="shrink-0 font-mono text-xs text-neutral-600">·</span>
+              </>
+            )}
+            <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-neutral-100">
+              {session.lastUserPrompt ?? <span className="font-normal text-faint">no prompt yet</span>}
+            </span>
+          </span>
+          <span className={`shrink-0 font-mono text-xs ${waiting ? 'text-alarm' : 'text-muted'}`}>
+            {session.startedAt ? elapsed(session.startedAt) : ''}
+          </span>
         </span>
-        {/* The session's own name leads: /rename rewrites it in the registry
-            file, so it is the one label the user controls. The prompt stays —
-            unrenamed sessions all carry the auto name of their directory. */}
-        {live?.name && (
-          <span className="max-w-40 shrink-0 truncate text-neutral-100">{live.name}</span>
+        <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+          <span className={`font-mono text-[10.5px] tracking-[0.1em] uppercase ${STATUS_TEXT[status]}`}>
+            {STATUS_LABELS[status]}
+          </span>
+          <ContextBar usage={session.usage} working={status === 'active'} />
+        </span>
+        {live?.waitingFor && (
+          <span className={`font-mono text-xs text-alarm ${SUB_ROW}`}>waiting for {live.waitingFor}</span>
         )}
-        {live?.name && <span aria-hidden="true" className="shrink-0 text-faint">·</span>}
-        <span className="min-w-0 flex-1 truncate text-neutral-100">
-          {session.lastUserPrompt ?? <span className="text-faint">no prompt yet</span>}
-        </span>
-        <span className="w-16 shrink-0 text-right text-xs text-faint">
-          {session.startedAt ? elapsed(session.startedAt) : ''}
-        </span>
-      </div>
-
-      <div className={SUB_ROW}>
-        <ContextBar usage={session.usage} />
-      </div>
-
-      {live?.waitingFor && (
-        <p className={`text-xs text-amber-400 ${SUB_ROW}`}>waiting for {live.waitingFor}</p>
-      )}
+      </span>
     </button>
   )
 }
@@ -136,24 +147,24 @@ export function groupLiveSessions(
 function GroupHeading(
   { group, onOpenProject }: { group: LiveGroup; onOpenProject: (id: string) => void },
 ) {
-  const name = <span className="truncate font-medium text-neutral-100">{group.label}</span>
+  const name = <span className="truncate font-mono text-[11.5px] text-faint">{group.label}</span>
   const projectId = group.projectId
 
   return (
-    <div className="mb-1 flex flex-wrap items-baseline gap-x-2 px-1">
+    <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 px-1">
       {projectId !== null
         ? (
             <button
               onClick={() => onOpenProject(projectId)}
               title={group.path ?? undefined}
-              className={`flex min-w-0 rounded text-sm hover:underline ${FOCUS_RING}`}
+              className={`flex min-w-0 rounded hover:underline ${FOCUS_RING}`}
             >
               {name}
             </button>
           )
         // An unregistered project has no card to open, so it is not a control.
-        : <span className="flex min-w-0 text-sm" title={group.path ?? undefined}>{name}</span>}
-      <span className="shrink-0 text-xs text-faint">
+        : <span className="flex min-w-0" title={group.path ?? undefined}>{name}</span>}
+      <span className="shrink-0 font-mono text-[11px] text-dim">
         {group.sessions.length} process{group.sessions.length === 1 ? '' : 'es'}
         {projectId === null && ' · not registered'}
       </span>
@@ -179,19 +190,17 @@ export function LiveBand(
   const liveSessions = sessions.filter(s => s.live !== null)
   const groups = groupLiveSessions(liveSessions, new Map(projects.map(p => [p.id, p.name])))
   // Derived from the same field the rows render, so the summary cannot drift.
-  const waiting = liveSessions.filter(s => s.live?.waitingFor).length
+  const waiting = liveSessions.filter(s => s.status === 'waiting').length
 
   const summary = liveSessions.length === 0
     ? 'nothing running'
     : `${liveSessions.length} process${liveSessions.length === 1 ? '' : 'es'}`
       + ` in ${groups.length} project${groups.length === 1 ? '' : 's'}`
-      + (waiting > 0 ? ` · ${waiting} waiting for you` : '')
 
   return (
     <section className="mb-8" data-testid="live-band">
-      <h2 className="mb-2 flex flex-wrap items-center gap-2 text-sm font-semibold tracking-wide uppercase text-muted">
-        <Radio aria-hidden="true" className="size-4" />
-        Live
+      <h2 className="mb-3.5 flex flex-wrap items-center gap-3 font-mono">
+        <span className="text-[10.5px] font-medium tracking-[0.14em] uppercase text-work">live</span>
         {/* The one place worth announcing: a session going quiet is not news,
             a session blocked on you is. */}
         <span
@@ -199,17 +208,26 @@ export function LiveBand(
           role="status"
           aria-live="polite"
           aria-atomic="true"
-          className="text-xs font-normal normal-case text-faint"
+          className="text-xs font-normal text-muted"
         >
           {summary}
+          <span className="sr-only">{waiting > 0 ? ` · ${waiting} waiting for you` : ''}</span>
         </span>
+        <span aria-hidden="true" className="h-px min-w-4 flex-1 bg-neutral-875" />
+        {waiting > 0
+          ? (
+              <span className="animate-beacon rounded-[5px] border border-alarm/30 px-2 py-1 text-[11px] font-normal tracking-[0.1em] uppercase text-alarm">
+                {waiting} waiting on you
+              </span>
+            )
+          : <span className="text-[11px] font-normal text-dim">nothing waiting</span>}
       </h2>
 
       <div className="flex flex-col gap-4">
         {groups.map(group => (
           <section key={group.key} data-testid="live-group" className="min-w-0">
             <GroupHeading group={group} onOpenProject={onOpenProject} />
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1.5">
               {group.sessions.map(s => (
                 <LiveRow key={s.sessionId} session={s} onOpen={onOpen} />
               ))}

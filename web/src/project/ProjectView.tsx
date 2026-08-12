@@ -99,18 +99,22 @@ export function ProjectView(
 
   return (
     <Page>
-      <nav aria-label="Breadcrumb" className="mb-2 text-sm">
+      <nav aria-label="Breadcrumb" className="mb-3">
         <button
           onClick={onBack}
-          className={`-ml-2 inline-flex items-center gap-1.5 rounded px-2 py-1 text-muted hover:bg-neutral-800 hover:text-neutral-100 ${FOCUS_RING}`}
+          className={`-ml-2 inline-flex items-center gap-1.5 rounded px-2 py-1 font-mono text-[11.5px] text-faint hover:bg-neutral-875 hover:text-neutral-200 ${FOCUS_RING}`}
         >
-          <ArrowLeft aria-hidden="true" className="size-4" />
+          <ArrowLeft aria-hidden="true" className="size-3.5" />
           Overview
         </button>
       </nav>
-      <h1 className="mb-1 text-2xl font-semibold">{project.name}</h1>
-      <p className="mb-2 font-mono text-xs break-all text-muted">{project.path}</p>
-      <div className="mb-6"><HooksBadge projectId={project.id} /></div>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-x-5 gap-y-3 border-b border-neutral-875 pb-5">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3.5 gap-y-1">
+          <h1 className="text-xl font-semibold tracking-[-0.01em]">{project.name}</h1>
+          <p className="min-w-0 font-mono text-[11.5px] break-all text-faint">{project.path}</p>
+        </div>
+        <HooksBadge projectId={project.id} />
+      </div>
 
       {/* One column until xl. The split used to arrive at lg, the same
           breakpoint at which the board went 3-up, so the task columns got
@@ -149,8 +153,16 @@ export function ProjectView(
         </div>
 
         <aside className="min-w-0">
-          <h2 className="mb-2 flex items-center gap-1.5 text-xs font-medium tracking-wide uppercase text-muted"><MessagesSquare aria-hidden="true" className="size-3.5" />Sessions</h2>
-          <div className="space-y-1">
+          <h2 className="mb-3 flex items-center gap-2.5 font-mono text-[10.5px] font-medium tracking-[0.14em] uppercase text-faint">
+            <MessagesSquare aria-hidden="true" className="size-3.5" />
+            Sessions
+            {sessions.some(s => s.status === 'active') && (
+              <span className="text-[11px] font-normal tracking-normal normal-case text-work">
+                {sessions.filter(s => s.status === 'active').length} live
+              </span>
+            )}
+          </h2>
+          <div className="space-y-[3px]">
             {sessions.length === 0
               ? <p className="px-3 py-2 text-sm text-faint">No sessions yet.</p>
               : sessions.map(s => <SessionRow key={s.sessionId} session={s} onOpen={onOpenSession} />)}

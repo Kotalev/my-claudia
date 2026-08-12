@@ -9,6 +9,8 @@
 
 ## Done
 
+- [x] **T-045** Implement the Mission Control Screens redesign (claude.ai/design): IBM Plex type, state/motion token layer (orbit·pulse·shimmer·beacon·caret), instrument PLAN+SPEND band, live rows with motion, task board with compact DONE, transcript hierarchy with chapters, activity blocks and collapsed bookkeeping `#m11` `#p1` (2026-08-12)
+
 - [x] **T-039** Spend band: 30-day daily ledger over registered projects' transcripts, today/7d/30d cost in the header band, live via `spend.updated`; account email in the header. Design: docs/superpowers/specs/2026-08-12-spend-tracking-design.md `#m10` `#p1` (2026-08-12)
 - [x] **T-044** Live rows show the session's own name (`/rename`) before the prompt; backend already carried it, the UI never rendered it `#m10` `#p3` (2026-08-12)
 - [x] **T-040** Installer guard: refuse to write settings when the target is the Claude data dir or `$HOME` (audit S1) `#p1` (2026-08-12)
@@ -55,6 +57,17 @@
 - [x] **T-001** Scaffold repo: TypeScript strict, Fastify, Vite+React+Tailwind, Vitest, eslint; `npm run dev` serves a hello page on 127.0.0.1:4517 `#m1` `#p1` (2026-08-12)
 
 ## Progress log
+
+- 2026-08-12 17:35 T-045 — Type switched to Archivo + Martian Mono (both SIL OFL, free) after a 6-variant comparison in docs/design/font-variants.html; browser-verified.
+
+- 2026-08-12 16:55 T-045 — Contrast pass: faint #8b9195 (~6:1), dim #7b8187 (~4.9:1); mock's #4c5457 was 2.6:1. Dropped opacity-70 on done rows/column — tokens carry the recede.
+
+- 2026-08-12 16:50 T-045 — Chapters rail joined the reading measure: it lined up on the viewport edge beside a centred column on wide screens.
+
+- 2026-08-12 16:45 T-045 — Done, browser-verified on all 3 screens with live data; 415 tests + lint clean. Motion is CSS-only, off under prefers-reduced-motion.
+- 2026-08-12 16:43 T-045 — Session view: chapters rail (isHumanPrompt is the chapter predicate), activity blocks per tool stretch, bookkeeping folded into counted dividers, ↑/↓ chapter jumps, streaming caret on the live tail.
+- 2026-08-12 16:35 T-045 — Token layer remaps the stock neutral/accent ramps in @theme, so untouched classes still land on the new palette; semantic tokens (work/alarm/info/danger) for new code.
+- 2026-08-12 16:29 T-045 — Started: design imported from claude.ai/design (screens + brief); plan is token layer first, then shared, overview, project, session.
 
 - 2026-08-12 17:30 T-039 — Done: SpendLedger (31d daily buckets, scan+live dedup by messageId, epoch-guarded scan cancel), spend.updated, SPEND band + account email. 407 tests, lint clean, browser-verified.
 - 2026-08-12 17:25 T-039 — Review fixes: null window renders n/a not $0.00; unpriced-only spend keeps the band visible.

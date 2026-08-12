@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { apiFetch } from '../shared/api.js'
-import { FolderPlus, Plug, Wifi, WifiOff, X } from 'lucide-react'
+import { FolderPlus, Plug, X } from 'lucide-react'
 import type { LiveState } from '../shared/useLiveState.js'
 import { ProjectCard } from './ProjectCard.js'
 import { LiveBand } from './LiveBand.js'
@@ -47,29 +47,34 @@ export function Overview(
 
   return (
     <Page>
-      <header className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h1 className="text-2xl font-semibold">Mission Control</h1>
+      <header className="mb-6 flex flex-wrap items-center gap-x-3.5 gap-y-2">
+        <h1 className="text-xl font-semibold tracking-[-0.01em]">Mission Control</h1>
         <span
           data-testid="connection"
           role="status"
           aria-live="polite"
           className={connected
-            ? 'inline-flex items-center gap-1.5 text-xs text-faint'
-            : 'inline-flex items-center gap-1.5 rounded bg-amber-500/10 px-2 py-0.5 text-xs text-amber-400'}
+            ? 'inline-flex items-center gap-[7px] rounded-[5px] border border-work/25 bg-work/10 px-2 py-1'
+            : 'inline-flex items-center gap-[7px] rounded-[5px] border border-alarm/30 bg-alarm/10 px-2 py-1'}
         >
-          {connected
-            ? <Wifi aria-hidden="true" className="size-3.5" />
-            : <WifiOff aria-hidden="true" className="size-3.5 animate-pulse motion-reduce:animate-none" />}
-          {connected ? 'live' : 'reconnecting…'}
+          <span
+            aria-hidden="true"
+            className={connected
+              ? 'size-1.5 animate-breathe rounded-full bg-work'
+              : 'size-1.5 animate-pulse rounded-full bg-alarm'}
+          />
+          <span className={`font-mono text-[10.5px] tracking-[0.12em] uppercase ${connected ? 'text-work' : 'text-alarm'}`}>
+            {connected ? 'live' : 'reconnecting…'}
+          </span>
         </span>
-        {account && <span data-testid="account-email" className="text-xs text-muted">{account.email}</span>}
-        <div className="ml-auto flex items-center gap-3">
+        {account && <span data-testid="account-email" className="font-mono text-xs text-faint">{account.email}</span>}
+        <div className="ml-auto flex items-center gap-2.5">
           <NotifyButton />
           <button
             data-testid="add-project-toggle"
             aria-expanded={adding}
             onClick={() => setAdding(a => !a)}
-            className={`inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted hover:text-neutral-100 ${FOCUS_RING}`}
+            className={`inline-flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-875 px-3 py-[7px] font-mono text-[11.5px] text-neutral-200 hover:bg-neutral-800 ${FOCUS_RING}`}
           >
             {adding
               ? <X aria-hidden="true" className="size-3.5" />
@@ -79,9 +84,12 @@ export function Overview(
         </div>
       </header>
 
-      <PlanLimitsBar limits={planLimits} />
-
-      <SpendBar spend={spend} />
+      {(planLimits ?? spend) && (
+        <div className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <PlanLimitsBar limits={planLimits} />
+          <SpendBar spend={spend} />
+        </div>
+      )}
 
       <LiveBand sessions={sessions} projects={projects} onOpen={onOpenSession} onOpenProject={onOpenProject} />
 
@@ -106,9 +114,9 @@ export function Overview(
       </div>
 
       {unassigned.length > 0 && (
-        <details className="mt-6 text-sm text-faint">
-          <summary className={`rounded py-1 ${FOCUS_RING}`}>
-            {unassigned.length} session(s) in unregistered projects.
+        <details className="mt-6 font-mono text-[11.5px] text-faint">
+          <summary className={`rounded py-1 hover:text-muted ${FOCUS_RING}`}>
+            {unassigned.length} session(s) in unregistered projects
           </summary>
           <ul className="mt-2 space-y-1">
             {unassignedPaths.map(path => (
