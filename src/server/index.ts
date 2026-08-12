@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 import websocket from '@fastify/websocket'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { HOST, PORT } from '../shared/config.js'
 import { ProjectRegistry } from './registry.js'
 import { registerProjectRoutes } from './routes/projects.js'
@@ -15,6 +16,10 @@ import { isAllowedHost, isAllowedOrigin } from './origin-guard.js'
 import { Dispatcher } from './dispatcher/index.js'
 import { registerDispatchRoutes } from './routes/dispatch.js'
 import { registerHookRoutes } from './routes/hooks.js'
+import { registerHookInstallRoutes } from './routes/hook-install.js'
+
+/** Absolute path to the forwarder, resolved once — a project's settings must not hold a relative path. */
+const HOOK_SCRIPT_PATH = fileURLToPath(new URL('../../scripts/hook-post.sh', import.meta.url))
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -95,6 +100,7 @@ export async function buildServer(
   registerDispatchRoutes(app, registry, dispatcher, publishTasks)
   registerHookRoutes(app, store, registry, session =>
     hub.broadcast({ type: 'session.updated', session }))
+  registerHookInstallRoutes(app, registry, HOOK_SCRIPT_PATH)
 
   app.get('/ws', { websocket: true }, socket => {
     const send = (payload: string) => socket.send(payload)

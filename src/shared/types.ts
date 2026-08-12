@@ -23,4 +23,6 @@ export interface SessionSummary {
   hasSidechain: boolean
   versions: string[]
   skippedUnknown: number
+  /** True when startup backfill began mid-file, so earlier entries were never loaded. */
+  historyTruncated: boolean
 }

@@ -85,7 +85,10 @@ export class SessionWatcher extends EventEmitter {
   }
 
   async #drain(filePath: string): Promise<void> {
-    const state = this.#tails.get(filePath) ?? await initialTailState(filePath)
+    const known = this.#tails.get(filePath)
+    const state = known ?? await initialTailState(filePath)
+    const joinedMidFile = known === undefined && state.byteOffset > 0
+
     const { lines, state: next } = await readNewLines(filePath, state)
     this.#tails.set(filePath, next)
     if (lines.length === 0) return
@@ -95,6 +98,7 @@ export class SessionWatcher extends EventEmitter {
 
     const sessionId = entries[0]?.sessionId ?? basename(filePath, '.jsonl')
     const project = this.registry.byEscapedDir(basename(dirname(filePath))) ?? null
+    if (joinedMidFile) this.store.markTruncated(sessionId)
     const summary = this.store.apply(sessionId, entries, stats, project)
     this.emit('session', summary)
   }

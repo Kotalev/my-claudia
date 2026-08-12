@@ -13,11 +13,14 @@ export function SessionRow(
       <span className={`mt-1.5 size-2 shrink-0 rounded-full ${STATUS_STYLES[session.status]}`} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm text-neutral-200">
-          {session.lastUserPrompt ?? '(no prompt yet)'}
+          {session.lastUserPrompt
+            ?? session.lastAssistantText
+            ?? (session.historyTruncated ? '(earlier history not loaded)' : '(no prompt yet)')}
         </span>
         <span className="block text-xs text-neutral-500">
           {relativeTime(session.lastActivity)} · {session.messageCount} msgs
           {session.hasSidechain && ' · subagents'}
+          {session.historyTruncated && ' · partial history'}
           {session.skippedUnknown > 0 && ` · ${session.skippedUnknown} unknown lines`}
         </span>
       </span>

@@ -4,6 +4,7 @@ import { NewTaskForm } from './NewTaskForm.js'
 import { NEXT_STATUS, TaskBoard } from './TaskBoard.js'
 import { SessionRow } from '../overview/SessionRow.js'
 import { RunPanel } from './RunPanel.js'
+import { HooksBadge } from './HooksBadge.js'
 
 const EMPTY_DOC: TasksDoc = { title: 'Tasks', tasks: [], progress: [], preamble: [] }
 
@@ -71,7 +72,8 @@ export function ProjectView(
         ← Overview
       </button>
       <h1 className="mb-1 text-2xl font-semibold">{project.name}</h1>
-      <p className="mb-6 font-mono text-xs text-neutral-600">{project.path}</p>
+      <p className="mb-2 font-mono text-xs text-neutral-600">{project.path}</p>
+      <div className="mb-6"><HooksBadge projectId={project.id} /></div>
 
       <div className="grid gap-8 lg:grid-cols-[2fr_1fr]">
         <div className="space-y-4">

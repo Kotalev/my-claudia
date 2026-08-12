@@ -119,3 +119,16 @@ describe('SessionStore.sweepStatusChanges', () => {
     expect(store.sweepStatusChanges()).toHaveLength(0)
   })
 })
+
+describe('SessionStore — truncated history', () => {
+  it('is not truncated by default', () => {
+    const store = new SessionStore()
+    expect(store.apply('s1', [entry()], stats, null).historyTruncated).toBe(false)
+  })
+
+  it('reports truncation when the transcript was joined partway through', () => {
+    const store = new SessionStore()
+    store.markTruncated('s1')
+    expect(store.apply('s1', [entry()], stats, null).historyTruncated).toBe(true)
+  })
+})

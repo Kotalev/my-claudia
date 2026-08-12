@@ -26,6 +26,7 @@ export interface SessionSummary {
   hasSidechain: boolean
   versions: string[]
   skippedUnknown: number
+  historyTruncated: boolean
 }
 
 export interface ToolCall {

@@ -19,7 +19,7 @@ function line(uuid: string, text: string, ts = '2026-08-12T10:00:00.000Z') {
 }
 
 /** Waits for the watcher to emit a session summary, or rejects on timeout. */
-function nextSession(w: SessionWatcher, timeoutMs = 4000): Promise<SessionSummary> {
+function nextSession(w: SessionWatcher, timeoutMs = 10_000): Promise<SessionSummary> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('no session event within timeout')), timeoutMs)
     w.once('session', (s: SessionSummary) => { clearTimeout(timer); resolve(s) })

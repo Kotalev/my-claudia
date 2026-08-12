@@ -2,7 +2,6 @@
 
 ## Todo
 
-- [ ] **T-014** Hook installer: merge SessionStart/Stop/SessionEnd/PostToolUse hooks into a target project's `.claude/settings.json` with backup; hooks become primary status source, watcher fallback `#m4` `#p2`
 - [ ] **T-015** Final v1 review, port Claude Code setup (.claude/rules + hooks), README, v1 acceptance pass `#m4` `#p1`
 
 ## In progress
@@ -10,6 +9,7 @@
 
 ## Done
 
+- [x] **T-014** Hook installer: merge SessionStart/Stop/SessionEnd/PostToolUse hooks into a target project's `.claude/settings.json` with backup; hooks become primary status source, watcher fallback `#m4` `#p2` (2026-08-12)
 - [x] **T-013** Hook sink `POST /api/hooks` + fail-silent `scripts/hook-post.sh` `#m4` `#p1` (2026-08-12)
 - [x] **T-012** "Run with Claude" button on a task; generated prompt references the task id and TASKS.md update rules `#m3` `#p2` (2026-08-12)
 - [x] **T-011** Dispatcher: `claude -p ... --cwd <project> --output-format stream-json`, capture session id, stream output to UI, 1-per-project concurrency guard `#m3` `#p1` (2026-08-12)
@@ -26,6 +26,8 @@
 
 ## Progress log
 
+- 2026-08-12 11:57 T-014 — Hook installer verified on a real project: hooked session marked done via SessionEnd, which the watcher cannot know.
+- 2026-08-12 11:55 — Bounded backfill made old sessions look promptless; added historyTruncated so "partial history" is stated, not implied.
 - 2026-08-12 11:52 T-013 — Hook sink live: session went active via hook alone. Forwarder exits 0 in 53ms with server down.
 - 2026-08-12 11:50 T-012 — Run button verified end-to-end: real claude run wrote HELLO.md, updated TASKS.md; cancel exits 143, no orphans.
 - 2026-08-12 11:48 T-011 — Dispatcher done. Stream rendered readable server-side (src/server/dispatcher/stream.ts), raw json never reaches UI.

@@ -36,6 +36,11 @@ export function SessionView({ sessionId, onBack }: { sessionId: string; onBack: 
       </header>
 
       <div className="space-y-1 px-8 py-6">
+        {summary?.historyTruncated && (
+          <p className="mb-3 rounded-lg border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs text-neutral-500">
+            Only the tail of this transcript was loaded — it was already large when the dashboard started.
+          </p>
+        )}
         {loading && <p className="text-neutral-500">Loading…</p>}
         {!loading && entries.length === 0 && <p className="text-neutral-500">No entries parsed yet.</p>}
         {entries.map(e => <TimelineEntry key={e.uuid} entry={e} />)}

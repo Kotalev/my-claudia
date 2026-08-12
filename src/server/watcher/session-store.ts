@@ -9,6 +9,7 @@ interface SessionState {
   lastStatus: SessionStatus | null
   /** Set by hook events, which are ahead of the transcript's own timestamps. */
   hookActivity: string | null
+  historyTruncated: boolean
   seen: Set<string>
   ended: boolean
   project: ProjectRecord | null
@@ -23,7 +24,8 @@ export class SessionStore {
     let s = this.#sessions.get(sessionId)
     if (!s) {
       s = {
-        entries: [], lastStatus: null, hookActivity: null, seen: new Set(), ended: false,
+        entries: [], lastStatus: null, hookActivity: null, historyTruncated: false,
+        seen: new Set(), ended: false,
         project: null, versions: new Set(), skippedUnknown: 0,
       }
       this.#sessions.set(sessionId, s)
@@ -50,6 +52,15 @@ export class SessionStore {
     const summary = this.#summarize(sessionId, state)
     state.lastStatus = summary.status
     return summary
+  }
+
+  /**
+   * The session's transcript was joined partway through, so the entries we hold
+   * are a tail rather than the whole conversation. Callers must not present the
+   * absence of an early prompt as the session never having had one.
+   */
+  markTruncated(sessionId: string): void {
+    this.#state(sessionId).historyTruncated = true
   }
 
   markEnded(sessionId: string): void {
@@ -141,6 +152,7 @@ export class SessionStore {
       hasSidechain,
       versions: [...state.versions],
       skippedUnknown: state.skippedUnknown,
+      historyTruncated: state.historyTruncated,
     }
   }
 }

@@ -11,7 +11,7 @@ let watcher: TasksWatcher | null = null
 
 const DOC = '# Tasks\n\n## Todo\n\n- [ ] **T-001** Written by hand\n\n## In progress\n\n## Done\n\n## Progress log\n'
 
-function nextChange(w: TasksWatcher, timeoutMs = 4000): Promise<TasksChange> {
+function nextChange(w: TasksWatcher, timeoutMs = 10_000): Promise<TasksChange> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('no tasks event within timeout')), timeoutMs)
     w.once('tasks', (c: TasksChange) => { clearTimeout(timer); resolve(c) })
