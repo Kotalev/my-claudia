@@ -7,11 +7,15 @@ const stats: ParseStats = {
 }
 
 function entry(over: Partial<TranscriptEntry> = {}): TranscriptEntry {
-  return {
+  const base: TranscriptEntry = {
     uuid: 'u1', parentUuid: null, sessionId: 's1', timestamp: '2026-08-12T10:00:00.000Z',
     role: 'user', isSidechain: false, cwd: '/p', gitBranch: 'main', version: '2.1.0',
-    text: 'do the thing', toolCalls: [], isMeta: false, ...over,
+    text: 'do the thing', toolCalls: [], isMeta: false, isHumanPrompt: false, ...over,
   }
+  // Mirror what the parser would decide, unless a test states it explicitly.
+  return over.isHumanPrompt !== undefined
+    ? base
+    : { ...base, isHumanPrompt: base.role === 'user' && !base.isMeta && !base.isSidechain }
 }
 
 afterEach(() => { vi.useRealTimers() })

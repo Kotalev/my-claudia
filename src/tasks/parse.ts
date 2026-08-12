@@ -1,4 +1,4 @@
-import type { Task, TaskStatus, TasksDoc } from './types.js'
+import type { ExtraSection, Task, TaskStatus, TasksDoc } from './types.js'
 
 const STATUS_FOR_CHECKBOX: Record<string, TaskStatus> = {
   ' ': 'todo', '~': 'in-progress', x: 'done', X: 'done',
@@ -44,27 +44,54 @@ function parseTaskLine(line: string, sectionStatus: TaskStatus | null): Task | n
 }
 
 export function parseTasks(markdown: string): TasksDoc {
-  const doc: TasksDoc = { title: 'Tasks', tasks: [], progress: [], preamble: [] }
+  const doc: TasksDoc = {
+    title: 'Tasks', tasks: [], progress: [], preamble: [], sectionExtras: {}, extraSections: [],
+  }
   let section: TaskStatus | 'progress' | null = null
+  let extraSection: ExtraSection | null = null
   let sawSection = false
+  let inFence = false
+
+  const keepExtra = (line: string): void => {
+    if (extraSection) { extraSection.lines.push(line); return }
+    if (section === null || section === 'progress') return
+    ;(doc.sectionExtras[section] ??= []).push(line)
+  }
 
   for (const line of markdown.split('\n')) {
     const trimmed = line.trim()
+
+    // Inside a fenced block nothing is markdown structure — a `# ` there is code.
+    if (trimmed.startsWith('```')) {
+      inFence = !inFence
+      keepExtra(line)
+      continue
+    }
+    if (inFence) { keepExtra(line); continue }
 
     if (trimmed.startsWith('# ')) { doc.title = trimmed.slice(2).trim(); continue }
 
     if (trimmed.startsWith('## ')) {
       sawSection = true
-      const heading = trimmed.slice(3).trim().toLowerCase()
-      section = heading === 'todo' ? 'todo'
-        : heading === 'in progress' ? 'in-progress'
-        : heading === 'done' ? 'done'
-        : heading === 'progress log' ? 'progress'
-        : null
+      extraSection = null
+      const heading = trimmed.slice(3).trim()
+      switch (heading.toLowerCase()) {
+        case 'todo': section = 'todo'; break
+        case 'in progress': section = 'in-progress'; break
+        case 'done': section = 'done'; break
+        case 'progress log': section = 'progress'; break
+        default:
+          // Someone else's section. Keep it whole rather than deciding it is noise.
+          section = null
+          extraSection = { heading, lines: [] }
+          doc.extraSections.push(extraSection)
+      }
       continue
     }
 
     if (trimmed.length === 0) continue
+
+    if (extraSection) { extraSection.lines.push(line); continue }
 
     if (section === 'progress') {
       if (trimmed.startsWith('- ')) doc.progress.push({ raw: trimmed.slice(2).trim() })
@@ -77,6 +104,7 @@ export function parseTasks(markdown: string): TasksDoc {
 
     const task = parseTaskLine(line, section)
     if (task) doc.tasks.push(task)
+    else keepExtra(line)
   }
 
   return doc

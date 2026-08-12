@@ -48,6 +48,7 @@ export interface TranscriptEntry {
   text: string | null
   toolCalls: ToolCall[]
   isMeta: boolean
+  isHumanPrompt: boolean
 }
 
 export type TaskStatus = 'todo' | 'in-progress' | 'done'
@@ -63,11 +64,18 @@ export interface Task {
 
 export interface ProgressEntry { raw: string }
 
+export interface ExtraSection {
+  heading: string
+  lines: string[]
+}
+
 export interface TasksDoc {
   title: string
   tasks: Task[]
   progress: ProgressEntry[]
   preamble: string[]
+  sectionExtras: Record<string, string[]>
+  extraSections: ExtraSection[]
 }
 
 export type RunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'

@@ -87,3 +87,81 @@ describe('nextTaskId', () => {
     expect(nextTaskId(parseTasks(''))).toBe('T-001')
   })
 })
+
+describe('preserving content the model does not understand', () => {
+  const RICH = `# Tasks
+
+Intro paragraph before any section.
+
+## Todo
+
+Some prose explaining the todo column.
+
+- [ ] **T-001** A real task \`#p1\`
+
+### Icebox
+
+- [ ] **T-009** Someday task
+
+## In progress
+
+## Done
+
+## Notes
+
+Free-form notes that belong to the human, not the tool.
+
+- a bullet that is not a task
+
+## Progress log
+
+- 2026-08-12 T-001 — started
+`
+
+  it('keeps prose written inside a known section', () => {
+    const out = serializeTasks(parseTasks(RICH))
+    expect(out).toContain('Some prose explaining the todo column.')
+  })
+
+  it('keeps an entire section it does not model', () => {
+    const out = serializeTasks(parseTasks(RICH))
+    expect(out).toContain('## Notes')
+    expect(out).toContain('Free-form notes that belong to the human, not the tool.')
+    expect(out).toContain('- a bullet that is not a task')
+  })
+
+  it('keeps a subheading', () => {
+    expect(serializeTasks(parseTasks(RICH))).toContain('### Icebox')
+  })
+
+  it('keeps the preamble', () => {
+    expect(serializeTasks(parseTasks(RICH))).toContain('Intro paragraph before any section.')
+  })
+
+  it('still round-trips with all that extra content', () => {
+    const once = parseTasks(RICH)
+    expect(parseTasks(serializeTasks(once))).toEqual(once)
+  })
+
+  it('survives a full write cycle without losing anything', () => {
+    // What TaskStore does on every mutation: parse, change, write the whole file.
+    const doc = parseTasks(RICH)
+    doc.tasks.push({ id: 'T-010', status: 'todo', title: 'Added', tags: [], doneDate: null, note: null })
+    const out = serializeTasks(doc)
+    for (const kept of ['Intro paragraph', 'Some prose', '### Icebox', '## Notes', 'Free-form notes', 'T-009']) {
+      expect(out).toContain(kept)
+    }
+  })
+
+  it('does not treat a heading inside a fenced code block as the document title', () => {
+    const doc = parseTasks('# Tasks\n\n## Todo\n\n```bash\n# not a title\n```\n')
+    expect(doc.title).toBe('Tasks')
+  })
+
+  it('keeps a fenced code block intact', () => {
+    const src = '# Tasks\n\n## Todo\n\n```bash\n# not a title\nnpm test\n```\n\n## In progress\n\n## Done\n\n## Progress log\n'
+    const out = serializeTasks(parseTasks(src))
+    expect(out).toContain('```bash')
+    expect(out).toContain('npm test')
+  })
+})

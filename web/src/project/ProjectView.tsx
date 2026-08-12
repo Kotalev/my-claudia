@@ -6,7 +6,9 @@ import { SessionRow } from '../overview/SessionRow.js'
 import { RunPanel } from './RunPanel.js'
 import { HooksBadge } from './HooksBadge.js'
 
-const EMPTY_DOC: TasksDoc = { title: 'Tasks', tasks: [], progress: [], preamble: [] }
+const EMPTY_DOC: TasksDoc = {
+  title: 'Tasks', tasks: [], progress: [], preamble: [], sectionExtras: {}, extraSections: [],
+}
 
 export function ProjectView(
   { project, sessions, doc, runs, runOutput, onBack, onOpenSession }:

@@ -13,10 +13,15 @@ export interface InstallResult {
 interface HookCommand { type: 'command'; command: string; timeout?: number }
 interface HookGroup { matcher?: string; hooks: HookCommand[] }
 
+/** Hook commands are run through a shell, so a checkout path with a space would split. */
+export function shellQuote(path: string): string {
+  return `'${path.replaceAll("'", `'\\''`)}'`
+}
+
 export function buildHookEntry(scriptPath: string): HookCommand {
   // No matcher: matcher semantics have changed across Claude Code releases, and
   // we want every occurrence of these events regardless.
-  return { type: 'command', command: scriptPath, timeout: 1 }
+  return { type: 'command', command: shellQuote(scriptPath), timeout: 1 }
 }
 
 function settingsPathFor(projectPath: string): string {
@@ -43,8 +48,9 @@ export function mergeHooks(
 
   for (const event of HOOK_EVENTS) {
     const groups = Array.isArray(hooks[event]) ? [...hooks[event]] : []
+    const quoted = shellQuote(scriptPath)
     const present = groups.some(g =>
-      Array.isArray(g?.hooks) && g.hooks.some(h => h?.command === scriptPath))
+      Array.isArray(g?.hooks) && g.hooks.some(h => h?.command === quoted))
 
     if (present) {
       alreadyPresent.push(event)

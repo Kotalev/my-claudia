@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionSummary, TranscriptEntry } from '../shared/types.js'
 
-export function useSessionDetail(sessionId: string) {
+export function useSessionDetail(sessionId: string, liveActivity: string | null) {
   const [summary, setSummary] = useState<SessionSummary | null>(null)
   const [entries, setEntries] = useState<TranscriptEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -25,22 +25,13 @@ export function useSessionDetail(sessionId: string) {
 
   useEffect(() => { void refetch() }, [refetch])
 
-  // A session.updated for THIS session means new entries exist, so refetch the
-  // full timeline rather than trying to patch it.
+  // No socket of its own: the app already holds one, and a second connection
+  // would receive every broadcast in the system just to learn about this
+  // session. The caller passes the live summary; a change in its activity
+  // timestamp is the signal that new entries exist.
   useEffect(() => {
-    const socket = new WebSocket(`ws://${location.host}/ws`)
-    socket.onmessage = ev => {
-      const msg = JSON.parse(ev.data as string)
-      if (msg.type === 'session.updated' && msg.session.sessionId === sessionId) void refetch()
-    }
-    return () => {
-      if (socket.readyState === WebSocket.CONNECTING) {
-        socket.addEventListener('open', () => socket.close())
-      } else {
-        socket.close()
-      }
-    }
-  }, [sessionId, refetch])
+    if (liveActivity !== null) void refetch()
+  }, [liveActivity, refetch])
 
   return { summary, entries, loading }
 }

@@ -63,7 +63,7 @@ describe('applyHookEvent', () => {
     store.apply('s1', [{
       uuid: 'u1', parentUuid: null, sessionId: 's1', timestamp: '2026-08-12T10:00:00.000Z',
       role: 'user', isSidechain: false, cwd: '/p', gitBranch: null, version: null,
-      text: 'hi', toolCalls: [], isMeta: false,
+      text: 'hi', toolCalls: [], isMeta: false, isHumanPrompt: true,
     }], stats, null)
     expect(store.get('s1')!.status).toBe('idle')
 

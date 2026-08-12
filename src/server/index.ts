@@ -1,6 +1,8 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 import websocket from '@fastify/websocket'
+import fastifyStatic from '@fastify/static'
 import { join } from 'node:path'
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { HOST, PORT } from '../shared/config.js'
 import { ProjectRegistry } from './registry.js'
@@ -118,6 +120,19 @@ export async function buildServer(
     }
   }, 60_000)
   sweep.unref()
+
+  // In production the API also serves the built UI, so `npm start` is the whole
+  // dashboard on one port. In dev the Vite server owns the UI and proxies here.
+  const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url))
+  if (existsSync(join(webDist, 'index.html'))) {
+    await app.register(fastifyStatic, { root: webDist })
+    app.setNotFoundHandler((req, reply) => {
+      if (req.url.startsWith('/api') || req.url.startsWith('/ws')) {
+        return reply.code(404).send({ error: 'not found' })
+      }
+      return reply.sendFile('index.html')
+    })
+  }
 
   app.decorate('registry', registry)
   app.decorate('store', store)

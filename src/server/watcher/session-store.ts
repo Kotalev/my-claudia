@@ -120,7 +120,7 @@ export class SessionStore {
 
     for (const e of entries) {
       if (e.isSidechain) { hasSidechain = true; continue }  // subagent chatter is not the session's own state
-      if (e.role === 'user' && e.text && !e.isMeta) lastUserPrompt = e.text
+      if (e.isHumanPrompt && e.text) lastUserPrompt = e.text
       if (e.role === 'assistant' && e.text) lastAssistantText = e.text
       for (const call of e.toolCalls) {
         toolCounts[call.name] = (toolCounts[call.name] ?? 0) + 1

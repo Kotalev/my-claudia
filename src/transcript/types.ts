@@ -21,6 +21,13 @@ export interface TranscriptEntry {
   text: string | null
   toolCalls: ToolCall[]
   isMeta: boolean
+  /**
+   * True only for text a human actually typed. Claude Code replays a lot of
+   * machine content as user turns — slash-command output, injected reminders,
+   * tool results, subagent instructions — and deciding which is which requires
+   * knowing this format, so the decision belongs here rather than in the UI.
+   */
+  isHumanPrompt: boolean
 }
 
 export interface ParseStats {
@@ -33,6 +40,17 @@ export interface ParseStats {
   skippedInvalid: number
   versions: string[]
 }
+
+/** Wrappers Claude Code uses for machine content replayed as a user turn. */
+export const INJECTED_MARKERS = [
+  '<local-command-stdout>',
+  '<local-command-caveat>',
+  '<command-name>',
+  '<command-message>',
+  '<command-args>',
+  '<system-reminder>',
+  '<user-prompt-submit-hook>',
+] as const
 
 /**
  * Line types that carry conversation content. Everything else in the file

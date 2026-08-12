@@ -29,7 +29,7 @@ describe('mergeHooks', () => {
     const stop = (settings.hooks as Record<string, { hooks: { command: string }[] }[]>).Stop!
     const commands = stop.flatMap(g => g.hooks.map(h => h.command))
     expect(commands).toContain('afplay done.mp3')
-    expect(commands).toContain(SCRIPT)
+    expect(commands).toContain(`'${SCRIPT}'`)   // ours is shell-quoted
   })
 
   it('is idempotent — a second merge installs nothing new', () => {
@@ -89,5 +89,27 @@ describe('installHooks', () => {
 
   it('reports not installed for a project with no settings', async () => {
     expect(await isInstalled(dir, SCRIPT)).toBe(false)
+  })
+})
+
+describe('shell quoting', () => {
+  it('quotes the command, because a checkout path may contain spaces', async () => {
+    const spaced = '/Users/ivan/My Projects/mc/scripts/hook-post.sh'
+    const { settings } = mergeHooks({}, spaced)
+    const start = (settings.hooks as Record<string, { hooks: { command: string }[] }[]>).SessionStart!
+    expect(start[0]!.hooks[0]!.command).toBe(`'${spaced}'`)
+  })
+
+  it('stays idempotent for a quoted path', async () => {
+    const spaced = '/Users/ivan/My Projects/mc/scripts/hook-post.sh'
+    const first = mergeHooks({}, spaced)
+    expect(mergeHooks(first.settings, spaced).installed).toEqual([])
+  })
+
+  it('escapes a single quote in the path rather than breaking out of the quoting', () => {
+    const nasty = "/tmp/it's/hook-post.sh"
+    const { settings } = mergeHooks({}, nasty)
+    const start = (settings.hooks as Record<string, { hooks: { command: string }[] }[]>).SessionStart!
+    expect(start[0]!.hooks[0]!.command).toBe(`'/tmp/it'\\''s/hook-post.sh'`)
   })
 })

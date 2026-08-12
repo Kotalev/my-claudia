@@ -1,7 +1,18 @@
 import {
-  BOOKKEEPING_TYPES, CONTENT_TYPES,
+  BOOKKEEPING_TYPES, CONTENT_TYPES, INJECTED_MARKERS,
   type ParseStats, type Role, type ToolCall, type TranscriptEntry,
 } from './types.js'
+
+/**
+ * Distinguishes something the user typed from machine content Claude Code
+ * replays as a user turn. Anything wrapped in a known marker is machine text;
+ * so is a turn that carried no text of its own (a tool result).
+ */
+function looksHumanTyped(text: string | null): boolean {
+  if (text === null) return false
+  const head = text.trimStart()
+  return !INJECTED_MARKERS.some(marker => head.startsWith(marker))
+}
 
 /** Tool input keys that carry a file path, in priority order. */
 const FILE_PATH_KEYS = ['file_path', 'filePath', 'path', 'notebook_path']
@@ -100,6 +111,11 @@ export function parseLine(raw: string): TranscriptEntry | null {
     text: text ?? systemContent,
     toolCalls,
     isMeta: obj.isMeta === true,
+    isHumanPrompt:
+      type === 'user' &&
+      obj.isMeta !== true &&
+      obj.isSidechain !== true &&
+      looksHumanTyped(text),
   }
 }
 

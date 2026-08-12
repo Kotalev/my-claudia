@@ -3,8 +3,11 @@ import { useSessionDetail } from './useSessionDetail.js'
 import { TimelineEntry } from './TimelineEntry.js'
 import { relativeTime, STATUS_STYLES } from '../shared/format.js'
 
-export function SessionView({ sessionId, onBack }: { sessionId: string; onBack: () => void }) {
-  const { summary, entries, loading } = useSessionDetail(sessionId)
+export function SessionView(
+  { sessionId, liveActivity, onBack }:
+  { sessionId: string; liveActivity: string | null; onBack: () => void },
+) {
+  const { summary, entries, loading } = useSessionDetail(sessionId, liveActivity)
   const [follow, setFollow] = useState(true)
   const bottom = useRef<HTMLDivElement>(null)
 

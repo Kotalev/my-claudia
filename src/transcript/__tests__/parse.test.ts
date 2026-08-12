@@ -79,3 +79,59 @@ describe('parseLines — stats', () => {
     expect(withFiles.length).toBeGreaterThan(0)
   })
 })
+
+describe('parseLine — what counts as a human prompt', () => {
+  const userLine = (text: string) => JSON.stringify({
+    type: 'user', uuid: 'u1', sessionId: 's1', timestamp: '2026-08-12T10:00:00Z',
+    message: { role: 'user', content: text },
+  })
+
+  it('marks a plain typed message as a human prompt', () => {
+    expect(parseLine(userLine('build the thing'))!.isHumanPrompt).toBe(true)
+  })
+
+  it('does not mark slash-command output as a human prompt', () => {
+    const e = parseLine(userLine('<local-command-stdout>Set effort level to medium</local-command-stdout>'))!
+    expect(e.isHumanPrompt).toBe(false)
+  })
+
+  it('does not mark an injected system reminder as a human prompt', () => {
+    expect(parseLine(userLine('<system-reminder>do not forget X</system-reminder>'))!.isHumanPrompt).toBe(false)
+  })
+
+  it('does not mark a command invocation wrapper as a human prompt', () => {
+    expect(parseLine(userLine('<command-name>/effort</command-name>'))!.isHumanPrompt).toBe(false)
+  })
+
+  it('does not mark an assistant message as a human prompt', () => {
+    const line = JSON.stringify({
+      type: 'assistant', uuid: 'a1', sessionId: 's1', timestamp: '2026-08-12T10:00:00Z',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }] },
+    })
+    expect(parseLine(line)!.isHumanPrompt).toBe(false)
+  })
+
+  it('does not mark a meta line as a human prompt', () => {
+    const line = JSON.stringify({
+      type: 'user', uuid: 'u1', sessionId: 's1', timestamp: '2026-08-12T10:00:00Z',
+      isMeta: true, message: { role: 'user', content: 'injected context' },
+    })
+    expect(parseLine(line)!.isHumanPrompt).toBe(false)
+  })
+
+  it('does not mark subagent traffic as a human prompt', () => {
+    const line = JSON.stringify({
+      type: 'user', uuid: 'u1', sessionId: 's1', timestamp: '2026-08-12T10:00:00Z',
+      isSidechain: true, message: { role: 'user', content: 'subagent instructions' },
+    })
+    expect(parseLine(line)!.isHumanPrompt).toBe(false)
+  })
+
+  it('does not mark a tool-result-only turn as a human prompt', () => {
+    const line = JSON.stringify({
+      type: 'user', uuid: 'u1', sessionId: 's1', timestamp: '2026-08-12T10:00:00Z',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] },
+    })
+    expect(parseLine(line)!.isHumanPrompt).toBe(false)
+  })
+})
