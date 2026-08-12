@@ -5,6 +5,8 @@ import { HOST, PORT } from '../shared/config.js'
 import { ProjectRegistry } from './registry.js'
 import { registerProjectRoutes } from './routes/projects.js'
 import { registerSessionRoutes } from './routes/sessions.js'
+import { registerTaskRoutes } from './routes/tasks.js'
+import { TaskStore } from '../tasks/store.js'
 import { SessionStore } from './watcher/session-store.js'
 import { SessionWatcher } from './watcher/index.js'
 import { EventHub } from './ws/hub.js'
@@ -41,6 +43,12 @@ export async function buildServer(
   app.get('/api/health', async () => ({ ok: true, version: '0.1.0' }))
   registerProjectRoutes(app, registry)
   registerSessionRoutes(app, store, registry)
+  registerTaskRoutes(app, registry, projectId => {
+    const project = registry.byId(projectId)
+    if (!project) return
+    void new TaskStore(project.path).read()
+      .then(doc => hub.broadcast({ type: 'task.updated', projectId, doc }))
+  })
 
   app.get('/ws', { websocket: true }, socket => {
     const send = (payload: string) => socket.send(payload)

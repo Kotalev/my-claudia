@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ProjectRecord, SessionSummary } from './types.js'
+import type { ProjectRecord, SessionSummary, TasksDoc } from './types.js'
 
 export interface LiveState {
   projects: ProjectRecord[]
   sessions: SessionSummary[]
+  tasks: Record<string, TasksDoc>
   connected: boolean
 }
 
 export function useLiveState(): LiveState {
   const [projects, setProjects] = useState<ProjectRecord[]>([])
   const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const [tasks, setTasks] = useState<Record<string, TasksDoc>>({})
   const [connected, setConnected] = useState(false)
   const lastSeq = useRef(0)
 
@@ -38,6 +40,9 @@ export function useLiveState(): LiveState {
         if (msg.type === 'snapshot') {
           setProjects(msg.projects)
           setSessions(msg.sessions)
+          setTasks(msg.tasks ?? {})
+        } else if (msg.type === 'task.updated') {
+          setTasks(prev => ({ ...prev, [msg.projectId]: msg.doc }))
         } else if (msg.type === 'session.updated') {
           setSessions(prev => {
             const rest = prev.filter(s => s.sessionId !== msg.session.sessionId)
@@ -69,5 +74,5 @@ export function useLiveState(): LiveState {
     }
   }, [])
 
-  return { projects, sessions, connected }
+  return { projects, sessions, tasks, connected }
 }

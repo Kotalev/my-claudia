@@ -1,8 +1,11 @@
-import { useLiveState } from '../shared/useLiveState.js'
+import type { LiveState } from '../shared/useLiveState.js'
 import { ProjectCard } from './ProjectCard.js'
 
-export function Overview({ onOpenSession }: { onOpenSession: (id: string) => void }) {
-  const { projects, sessions, connected } = useLiveState()
+export function Overview(
+  { live, onOpenSession, onOpenProject }:
+  { live: LiveState; onOpenSession: (id: string) => void; onOpenProject: (id: string) => void },
+) {
+  const { projects, sessions, connected } = live
   const unassigned = sessions.filter(s => s.projectId === null)
 
   return (
@@ -21,6 +24,7 @@ export function Overview({ onOpenSession }: { onOpenSession: (id: string) => voi
             project={p}
             sessions={sessions.filter(s => s.projectId === p.id)}
             onOpenSession={onOpenSession}
+            onOpenProject={onOpenProject}
           />
         ))}
       </div>

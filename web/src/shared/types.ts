@@ -48,3 +48,23 @@ export interface TranscriptEntry {
   toolCalls: ToolCall[]
   isMeta: boolean
 }
+
+export type TaskStatus = 'todo' | 'in-progress' | 'done'
+
+export interface Task {
+  id: string
+  status: TaskStatus
+  title: string
+  tags: string[]
+  doneDate: string | null
+  note: string | null
+}
+
+export interface ProgressEntry { raw: string }
+
+export interface TasksDoc {
+  title: string
+  tasks: Task[]
+  progress: ProgressEntry[]
+  preamble: string[]
+}
