@@ -1,19 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { Overview } from './overview/Overview.js'
 
 export function App() {
-  const [health, setHealth] = useState('checking…')
+  const [selectedSession, setSelectedSession] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetch('/api/health')
-      .then(r => r.json())
-      .then(d => setHealth(d.ok ? `API up (v${d.version})` : 'API error'))
-      .catch(() => setHealth('API unreachable'))
-  }, [])
+  if (selectedSession) {
+    return (
+      <main className="min-h-screen bg-neutral-950 p-8 text-neutral-100">
+        <button onClick={() => setSelectedSession(null)} className="text-sm text-neutral-400 hover:text-neutral-100">
+          ← Overview
+        </button>
+        <h1 className="mt-2 font-mono text-sm">{selectedSession}</h1>
+      </main>
+    )
+  }
 
-  return (
-    <main className="min-h-screen bg-neutral-950 p-8 text-neutral-100">
-      <h1 className="text-2xl font-semibold">Mission Control</h1>
-      <p className="mt-2 text-neutral-400" data-testid="health">{health}</p>
-    </main>
-  )
+  return <Overview onOpenSession={setSelectedSession} />
 }
