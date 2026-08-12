@@ -7,3 +7,4 @@ projects.json
 .screenshots/
 .auth-token
 .claude/settings*.backup-*
+.DS_Store
