@@ -51,6 +51,12 @@ export interface RunHandle {
   startedAt: string
   endedAt: string | null
   exitCode: number | null
+  /**
+   * What `claude` itself reported for this run, from the `result` event. Still a
+   * client-side estimate by Anthropic's own documentation, but it is theirs.
+   */
+  costUsd: number | null
+  numTurns: number | null
 }
 
 /** How a live process was started. Background agents have no OS process of their own. */

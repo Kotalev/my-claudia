@@ -1,3 +1,4 @@
+import { money } from '../shared/usage-format.js'
 import { useEffect, useRef } from 'react'
 import type { RunHandle } from '../shared/types.js'
 
@@ -23,6 +24,13 @@ export function RunPanel(
           {run.status}
         </span>
         {run.sessionId && <span className="truncate font-mono text-neutral-600">{run.sessionId}</span>}
+        {run.costUsd !== null && (
+          <span data-testid="run-cost" className="shrink-0 text-neutral-500">
+            {money(run.costUsd)}
+            {run.numTurns !== null && ` · ${run.numTurns} turns`}
+            <span className="text-neutral-600"> reported by claude</span>
+          </span>
+        )}
         {run.endedAt === null && (
           <button
             onClick={() => onCancel(run.runId)}

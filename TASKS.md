@@ -2,16 +2,13 @@
 
 ## Todo
 
-### M7 — cost and plan limits
-
-- [ ] **T-029** Capture `total_cost_usd` + `num_turns` onto `RunHandle` instead of only rendering them into a string; label "reported by claude" `#m7` `#p3`
-
 
 ## In progress
 
 
 ## Done
 
+- [x] **T-029** Capture `total_cost_usd` + `num_turns` onto `RunHandle` instead of only rendering them into a string; label "reported by claude" `#m7` `#p3` (2026-08-12)
 - [x] **T-030** Statusline installer with backup + passthrough of the user's existing statusline; surfaces 5h/7d plan limits. Must never break a session `#m7` `#p2` (2026-08-12)
 - [x] **T-031** Record in SPEC.md: process definition, liveness precedence, occupancy formula and its one-turn lag, dedup rule, pricing policy `#m5` `#p2` (2026-08-12)
 - [x] **T-022** Transcript telemetry fields: `messageId`, `requestId`, `model`, `usage` (5m/1h cache split, thinking, web search), `effort`, `isApiError`. Fixtures: split-response same message.id, `<synthetic>`, legacy usage shape `#m6` `#p1` (2026-08-12)
@@ -45,6 +42,7 @@
 
 ## Progress log
 
+- 2026-08-12 13:30 T-029 — Run cost and turn count captured from the result event instead of only rendered into text.
 - 2026-08-12 13:20 T-031 — SPEC section 8 written: process definition, status precedence, dedup rule, occupancy, cost and plan-limit policy.
 - 2026-08-12 13:15 T-030 — Statusline installed at project scope with passthrough; 66ms with the dashboard down, exit 0 on a broken passthrough.
 - 2026-08-12 13:00 T-026..T-028 — Telemetry live in browser: 222k/1.0M bar, $44.31 PAYG vs $180.77 uncached, subagent split.

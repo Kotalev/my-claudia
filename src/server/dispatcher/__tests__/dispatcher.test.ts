@@ -114,3 +114,22 @@ describe('Dispatcher', () => {
     expect(d.list()[0]!.status).toBe('failed')
   })
 })
+
+describe('Dispatcher — what claude reported', () => {
+  it('keeps the run cost and turn count from the result event', async () => {
+    const d = makeDispatcher()
+    const handle = d.start(input)
+    await ended(d, handle.runId)
+    const run = d.get(handle.runId)!
+    expect(run.costUsd).toBe(0.01)
+    expect(run.numTurns).toBe(6)
+  })
+
+  it('reports null rather than zero when the run never said', async () => {
+    process.env.FAKE_CLAUDE_MODE = 'crash'
+    const d = makeDispatcher()
+    const handle = d.start(input)
+    await ended(d, handle.runId)
+    expect(d.get(handle.runId)!.costUsd).toBeNull()
+  })
+})

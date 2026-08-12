@@ -12,6 +12,6 @@ console.log(JSON.stringify({ type: 'assistant', argv: args, message: { content: 
 if (mode === 'crash') process.exit(3)
 if (mode === 'hang') { setInterval(() => {}, 1000) }
 else {
-  console.log(JSON.stringify({ type: 'result', subtype: 'success', session_id: 'fake-session-123', total_cost_usd: 0.01 }))
+  console.log(JSON.stringify({ type: 'result', subtype: 'success', session_id: 'fake-session-123', total_cost_usd: 0.01, num_turns: 6 }))
   process.exit(0)
 }

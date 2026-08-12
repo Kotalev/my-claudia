@@ -61,7 +61,7 @@ export class Dispatcher extends EventEmitter {
       runId,
       projectId: input.projectId,
       taskId: input.taskId,
-      sessionId: null,
+      sessionId: null, costUsd: null, numTurns: null,
       status: 'running',
       startedAt: new Date().toISOString(),
       endedAt: null,
@@ -109,15 +109,27 @@ export class Dispatcher extends EventEmitter {
     run.buffer = lines.pop() ?? ''
 
     for (const line of lines) {
-      if (run.sessionId === null) {
-        try {
-          const msg = JSON.parse(line) as { subtype?: string; session_id?: string }
-          if (msg.subtype === 'init' && msg.session_id) {
-            run.sessionId = msg.session_id
-            this.#update(run)
+      try {
+        const msg = JSON.parse(line) as {
+          type?: string; subtype?: string; session_id?: string
+          total_cost_usd?: unknown; num_turns?: unknown
+        }
+        if (run.sessionId === null && msg.subtype === 'init' && msg.session_id) {
+          run.sessionId = msg.session_id
+          this.#update(run)
+        }
+        // The final event carries the run's own cost and turn count. Rendering
+        // them into a text line lost them; the run panel wants the numbers.
+        if (msg.type === 'result') {
+          if (typeof msg.total_cost_usd === 'number' && Number.isFinite(msg.total_cost_usd)) {
+            run.costUsd = msg.total_cost_usd
           }
-        } catch { /* partial or non-JSON output is expected; keep scanning */ }
-      }
+          if (typeof msg.num_turns === 'number' && Number.isFinite(msg.num_turns)) {
+            run.numTurns = msg.num_turns
+          }
+          this.#update(run)
+        }
+      } catch { /* partial or non-JSON output is expected; keep scanning */ }
       const rendered = renderStreamLine(line)
       if (rendered !== null) this.emit('output', { runId: run.runId, chunk: `${rendered}\n` })
     }
