@@ -17,8 +17,14 @@ const CHECKBOX: Record<TaskStatus, string> = {
 }
 
 export function TaskBoard(
-  { doc, onAdvance, onDispatch }:
-  { doc: TasksDoc; onAdvance: (task: Task) => void; onDispatch?: (task: Task) => void },
+  { doc, onAdvance, onDispatch, dispatchBusy = false }:
+  {
+    doc: TasksDoc
+    onAdvance: (task: Task) => void
+    onDispatch?: (task: Task) => void
+    /** One run per project, so hide the affordance rather than let it 409. */
+    dispatchBusy?: boolean
+  },
 ) {
   return (
     <div className="grid gap-4 md:grid-cols-3">
@@ -54,7 +60,7 @@ export function TaskBoard(
                       {task.doneDate && <span className="text-xs text-neutral-600">{task.doneDate}</span>}
                     </div>
                   </div>
-                  {onDispatch && task.status !== 'done' && (
+                  {onDispatch && !dispatchBusy && task.status !== 'done' && (
                     <button
                       data-testid="dispatch-button"
                       onClick={() => onDispatch(task)}

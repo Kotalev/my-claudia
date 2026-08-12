@@ -68,3 +68,16 @@ export interface TasksDoc {
   progress: ProgressEntry[]
   preamble: string[]
 }
+
+export type RunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+export interface RunHandle {
+  runId: string
+  projectId: string
+  taskId: string
+  sessionId: string | null
+  status: RunStatus
+  startedAt: string
+  endedAt: string | null
+  exitCode: number | null
+}

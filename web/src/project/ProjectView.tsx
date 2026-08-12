@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { ProjectRecord, SessionSummary, Task, TasksDoc } from '../shared/types.js'
+import type { ProjectRecord, RunHandle, SessionSummary, Task, TasksDoc } from '../shared/types.js'
 import { NewTaskForm } from './NewTaskForm.js'
 import { NEXT_STATUS, TaskBoard } from './TaskBoard.js'
 import { SessionRow } from '../overview/SessionRow.js'
+import { RunPanel } from './RunPanel.js'
 
 const EMPTY_DOC: TasksDoc = { title: 'Tasks', tasks: [], progress: [], preamble: [] }
 
 export function ProjectView(
-  { project, sessions, doc, onBack, onOpenSession }:
+  { project, sessions, doc, runs, runOutput, onBack, onOpenSession }:
   {
     project: ProjectRecord
     sessions: SessionSummary[]
     doc: TasksDoc | undefined
+    runs: RunHandle[]
+    runOutput: Record<string, string>
     onBack: () => void
     onOpenSession: (id: string) => void
   },
@@ -19,6 +22,7 @@ export function ProjectView(
   // Live task docs arrive over the socket, but the very first render may precede
   // the project's doc appearing in the snapshot, so fetch once as a fallback.
   const [fallback, setFallback] = useState<TasksDoc | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (doc) return
@@ -47,6 +51,20 @@ export function ProjectView(
     })
   }, [project.id])
 
+  const dispatch = useCallback(async (task: Task) => {
+    const res = await fetch(`/api/projects/${project.id}/tasks/${task.id}/dispatch`, { method: 'POST' })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: 'dispatch failed' }))
+      setError(body.error ?? 'dispatch failed')
+      return
+    }
+    setError(null)
+  }, [project.id])
+
+  const cancelRun = useCallback((runId: string) => {
+    void fetch(`/api/runs/${runId}/cancel`, { method: 'POST' })
+  }, [])
+
   return (
     <main className="min-h-screen bg-neutral-950 p-8 text-neutral-100">
       <button onClick={onBack} className="mb-2 text-sm text-neutral-400 hover:text-neutral-100">
@@ -58,7 +76,20 @@ export function ProjectView(
       <div className="grid gap-8 lg:grid-cols-[2fr_1fr]">
         <div className="space-y-4">
           <NewTaskForm onCreate={createTask} />
-          <TaskBoard doc={current} onAdvance={advance} />
+          {error && (
+            <p data-testid="dispatch-error" className="rounded-lg border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+              {error}
+            </p>
+          )}
+          {runs.map(run => (
+            <RunPanel key={run.runId} run={run} output={runOutput[run.runId] ?? ''} onCancel={cancelRun} />
+          ))}
+          <TaskBoard
+            doc={current}
+            onAdvance={advance}
+            onDispatch={dispatch}
+            dispatchBusy={runs.some(r => r.endedAt === null)}
+          />
         </div>
 
         <aside>

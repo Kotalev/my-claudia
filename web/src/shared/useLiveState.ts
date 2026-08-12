@@ -1,17 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ProjectRecord, SessionSummary, TasksDoc } from './types.js'
+import type { ProjectRecord, RunHandle, SessionSummary, TasksDoc } from './types.js'
 
 export interface LiveState {
   projects: ProjectRecord[]
   sessions: SessionSummary[]
   tasks: Record<string, TasksDoc>
+  runs: RunHandle[]
+  runOutput: Record<string, string>
   connected: boolean
 }
+
+/** A long run can emit megabytes; keep only the tail so a tab cannot grow without bound. */
+const MAX_OUTPUT_CHARS = 200_000
 
 export function useLiveState(): LiveState {
   const [projects, setProjects] = useState<ProjectRecord[]>([])
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [tasks, setTasks] = useState<Record<string, TasksDoc>>({})
+  const [runs, setRuns] = useState<RunHandle[]>([])
+  const [runOutput, setRunOutput] = useState<Record<string, string>>({})
   const [connected, setConnected] = useState(false)
   const lastSeq = useRef(0)
   const seeded = useRef(false)
@@ -51,6 +58,13 @@ export function useLiveState(): LiveState {
           setProjects(msg.projects)
           setSessions(msg.sessions)
           setTasks(msg.tasks ?? {})
+        } else if (msg.type === 'dispatch.updated') {
+          setRuns(prev => [msg.run, ...prev.filter(r => r.runId !== msg.run.runId)])
+        } else if (msg.type === 'dispatch.output') {
+          setRunOutput(prev => {
+            const next = (prev[msg.runId] ?? '') + msg.chunk
+            return { ...prev, [msg.runId]: next.slice(-MAX_OUTPUT_CHARS) }
+          })
         } else if (msg.type === 'task.updated') {
           setTasks(prev => ({ ...prev, [msg.projectId]: msg.doc }))
         } else if (msg.type === 'session.updated') {
@@ -84,5 +98,5 @@ export function useLiveState(): LiveState {
     }
   }, [])
 
-  return { projects, sessions, tasks, connected }
+  return { projects, sessions, tasks, runs, runOutput, connected }
 }

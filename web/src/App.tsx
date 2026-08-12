@@ -20,6 +20,8 @@ export function App() {
         project={project}
         sessions={live.sessions.filter(s => s.projectId === project.id)}
         doc={live.tasks[project.id]}
+        runs={live.runs.filter(r => r.projectId === project.id)}
+        runOutput={live.runOutput}
         onBack={() => setProjectId(null)}
         onOpenSession={setSessionId}
       />

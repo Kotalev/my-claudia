@@ -12,6 +12,8 @@ import { SessionWatcher } from './watcher/index.js'
 import { TasksWatcher, type TasksChange } from './watcher/tasks-watcher.js'
 import { EventHub } from './ws/hub.js'
 import { isAllowedHost, isAllowedOrigin } from './origin-guard.js'
+import { Dispatcher } from './dispatcher/index.js'
+import { registerDispatchRoutes } from './routes/dispatch.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -19,6 +21,7 @@ declare module 'fastify' {
     store: SessionStore
     watcher: SessionWatcher
     tasksWatcher: TasksWatcher
+    dispatcher: Dispatcher
     hub: EventHub
   }
 }
@@ -33,6 +36,8 @@ export async function buildServer(
   const store = new SessionStore()
   const watcher = new SessionWatcher(registry, store)
   await watcher.start()
+
+  const dispatcher = new Dispatcher()
 
   const tasksWatcher = new TasksWatcher(registry)
   await tasksWatcher.start()
@@ -52,6 +57,9 @@ export async function buildServer(
     tasks: cachedDocs,
   }))
   watcher.on('session', session => hub.broadcast({ type: 'session.updated', session }))
+  dispatcher.on('output', ({ runId, chunk }: { runId: string; chunk: string }) =>
+    hub.broadcast({ type: 'dispatch.output', runId, chunk }))
+  dispatcher.on('update', run => hub.broadcast({ type: 'dispatch.updated', run }))
   tasksWatcher.on('tasks', ({ projectId, doc }: TasksChange) => {
     cachedDocs = { ...cachedDocs, [projectId]: doc }
     hub.broadcast({ type: 'task.updated', projectId, doc })
@@ -73,14 +81,17 @@ export async function buildServer(
     cachedDocs = await taskDocs()
   })
   registerSessionRoutes(app, store, registry)
-  registerTaskRoutes(app, registry, projectId => {
+  const publishTasks = (projectId: string): void => {
     const project = registry.byId(projectId)
     if (!project) return
     void new TaskStore(project.path).read().then(doc => {
       cachedDocs = { ...cachedDocs, [projectId]: doc }
       hub.broadcast({ type: 'task.updated', projectId, doc })
     })
-  })
+  }
+
+  registerTaskRoutes(app, registry, publishTasks)
+  registerDispatchRoutes(app, registry, dispatcher, publishTasks)
 
   app.get('/ws', { websocket: true }, socket => {
     const send = (payload: string) => socket.send(payload)
@@ -103,6 +114,7 @@ export async function buildServer(
   app.decorate('store', store)
   app.decorate('watcher', watcher)
   app.decorate('tasksWatcher', tasksWatcher)
+  app.decorate('dispatcher', dispatcher)
   app.decorate('hub', hub)
   app.addHook('onClose', async () => {
     clearInterval(sweep)
