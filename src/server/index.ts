@@ -1,9 +1,23 @@
 import Fastify, { type FastifyInstance } from 'fastify'
+import { join } from 'node:path'
 import { HOST, PORT } from '../shared/config.js'
+import { ProjectRegistry } from './registry.js'
+import { registerProjectRoutes } from './routes/projects.js'
 
-export async function buildServer(): Promise<FastifyInstance> {
+declare module 'fastify' {
+  interface FastifyInstance { registry: ProjectRegistry }
+}
+
+export async function buildServer(
+  storePath = join(process.cwd(), 'projects.json'),
+): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: 'info' } })
+  const registry = new ProjectRegistry(storePath)
+  await registry.load()
+
   app.get('/api/health', async () => ({ ok: true, version: '0.1.0' }))
+  registerProjectRoutes(app, registry)
+  app.decorate('registry', registry)
   return app
 }
 

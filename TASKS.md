@@ -2,7 +2,6 @@
 
 ## Todo
 
-- [ ] **T-002** Project registry: `projects.json` (list of real project paths), `GET/POST /api/projects`, escaped-dir matching per SPEC §3.1 `#m1` `#p1`
 - [ ] **T-003** Defensive transcript parser in `src/transcript/`: extract timestamp, role, text, tool calls, file paths; skip unknown lines; Vitest with real + malformed fixtures `#m1` `#p1`
 - [ ] **T-004** SessionWatcher: chokidar on `${CLAUDE_CONFIG_DIR:-~/.claude}/projects/**`, incremental tail by byte offset, per-session summary (status, last activity, files touched) `#m1` `#p1`
 - [ ] **T-005** WebSocket `/api/events` pushing `session.updated`; Overview screen with project cards + live session status `#m1` `#p1`
@@ -21,9 +20,12 @@
 
 ## Done
 
+- [x] **T-002** Project registry: `projects.json` (list of real project paths), `GET/POST /api/projects`, escaped-dir matching per SPEC §3.1 `#m1` `#p1` (2026-08-12)
 - [x] **T-001** Scaffold repo: TypeScript strict, Fastify, Vite+React+Tailwind, Vitest, eslint; `npm run dev` serves a hello page on 127.0.0.1:4517 `#m1` `#p1` (2026-08-12)
+
 ## Progress log
 
+- 2026-08-12 11:22 T-002 — Registry + GET/POST /api/projects working; escaped-dir derived, corrupt store tolerated.
 - 2026-08-12 11:21 T-001 — Scaffold done: TS strict, Fastify 4517, Vite 4518 proxy, Tailwind, Vitest 6/6, lint clean.
 - 2026-08-12 11:20 T-015 — Added: final review + Claude setup port + README, discovered while planning.
 - 2026-08-12 11:15 — Build design spec + implementation plan written (docs/superpowers/). Research: hooks beat transcripts for live status.
