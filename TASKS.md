@@ -2,8 +2,6 @@
 
 ## Todo
 
-- [ ] **T-007** M1 smoke test: dashboard shows a real live Claude Code session end-to-end; write findings into Progress log `#m1` `#p1`
-- [ ] **T-010** Watch TASKS.md per project; push `task.updated` over WebSocket `#m2` `#p2`
 - [ ] **T-011** Dispatcher: `claude -p ... --cwd <project> --output-format stream-json`, capture session id, stream output to UI, 1-per-project concurrency guard `#m3` `#p1`
 - [ ] **T-012** "Run with Claude" button on a task; generated prompt references the task id and TASKS.md update rules `#m3` `#p2`
 - [ ] **T-013** Hook sink `POST /api/hooks` + fail-silent `scripts/hook-post.sh` `#m4` `#p1` (1s timeout, always exit 0)
@@ -15,6 +13,8 @@
 
 ## Done
 
+- [x] **T-007** M1 smoke test: dashboard shows a real live Claude Code session end-to-end; write findings into Progress log `#m1` `#p1` (2026-08-12)
+- [x] **T-010** Watch TASKS.md per project; push `task.updated` over WebSocket `#m2` `#p2` (2026-08-12)
 - [x] **T-009** Task board UI (todo / in progress / done) + new-task form; `POST`/`PATCH` task endpoints writing line-based edits to TASKS.md `#m2` `#p1` (2026-08-12)
 - [x] **T-008** TASKS.md parser + serializer in `src/tasks/` with round-trip test (SPEC §5 format) `#m2` `#p1` (2026-08-12)
 - [x] **T-006** Session view: parsed timeline with auto-follow tail for active sessions `#m1` `#p2` (2026-08-12)
@@ -26,6 +26,8 @@
 
 ## Progress log
 
+- 2026-08-12 11:42 T-010 — TASKS.md watcher live: hand edit appeared in browser with no reload. Snapshot now carries task docs.
+- 2026-08-12 11:41 T-007 — M1 review: 30 findings, 24 refuted, 6 fixed (2 security: DNS rebinding + cross-origin WS). See docs/verification/m1-review.md.
 - 2026-08-12 11:36 T-009 — Board verified in browser: created T-016 from UI, moved it, landed on disk correctly, then removed.
 - 2026-08-12 11:33 T-008 — TASKS.md parser/serializer done; round-trips this repo own backlog. 13 tests.
 - 2026-08-12 11:31 T-006 — Session view verified in browser: 406 entries, tool paths, subagent tags, no thinking leaked.

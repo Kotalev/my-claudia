@@ -9,6 +9,7 @@ import { registerTaskRoutes } from './routes/tasks.js'
 import { TaskStore } from '../tasks/store.js'
 import { SessionStore } from './watcher/session-store.js'
 import { SessionWatcher } from './watcher/index.js'
+import { TasksWatcher, type TasksChange } from './watcher/tasks-watcher.js'
 import { EventHub } from './ws/hub.js'
 import { isAllowedHost, isAllowedOrigin } from './origin-guard.js'
 
@@ -17,6 +18,7 @@ declare module 'fastify' {
     registry: ProjectRegistry
     store: SessionStore
     watcher: SessionWatcher
+    tasksWatcher: TasksWatcher
     hub: EventHub
   }
 }
@@ -32,12 +34,28 @@ export async function buildServer(
   const watcher = new SessionWatcher(registry, store)
   await watcher.start()
 
+  const tasksWatcher = new TasksWatcher(registry)
+  await tasksWatcher.start()
+
+  // Task docs live on disk, so the snapshot reads them fresh rather than caching
+  // a copy the watcher would then have to keep in step.
+  const taskDocs = async (): Promise<Record<string, unknown>> => {
+    const entries = await Promise.all(registry.list().map(async p =>
+      [p.id, await new TaskStore(p.path).read()] as const))
+    return Object.fromEntries(entries)
+  }
+  let cachedDocs: Record<string, unknown> = await taskDocs()
+
   const hub = new EventHub(() => ({
     projects: registry.list(),
     sessions: store.all(),
-    tasks: {},
+    tasks: cachedDocs,
   }))
   watcher.on('session', session => hub.broadcast({ type: 'session.updated', session }))
+  tasksWatcher.on('tasks', ({ projectId, doc }: TasksChange) => {
+    cachedDocs = { ...cachedDocs, [projectId]: doc }
+    hub.broadcast({ type: 'task.updated', projectId, doc })
+  })
 
   await app.register(websocket)
 
@@ -50,13 +68,18 @@ export async function buildServer(
   })
 
   app.get('/api/health', async () => ({ ok: true, version: '0.1.0' }))
-  registerProjectRoutes(app, registry)
+  registerProjectRoutes(app, registry, async () => {
+    await tasksWatcher.restart()
+    cachedDocs = await taskDocs()
+  })
   registerSessionRoutes(app, store, registry)
   registerTaskRoutes(app, registry, projectId => {
     const project = registry.byId(projectId)
     if (!project) return
-    void new TaskStore(project.path).read()
-      .then(doc => hub.broadcast({ type: 'task.updated', projectId, doc }))
+    void new TaskStore(project.path).read().then(doc => {
+      cachedDocs = { ...cachedDocs, [projectId]: doc }
+      hub.broadcast({ type: 'task.updated', projectId, doc })
+    })
   })
 
   app.get('/ws', { websocket: true }, socket => {
@@ -79,8 +102,12 @@ export async function buildServer(
   app.decorate('registry', registry)
   app.decorate('store', store)
   app.decorate('watcher', watcher)
+  app.decorate('tasksWatcher', tasksWatcher)
   app.decorate('hub', hub)
-  app.addHook('onClose', async () => { clearInterval(sweep); await watcher.stop() })
+  app.addHook('onClose', async () => {
+    clearInterval(sweep)
+    await Promise.all([watcher.stop(), tasksWatcher.stop()])
+  })
 
   return app
 }
