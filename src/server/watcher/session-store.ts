@@ -65,10 +65,19 @@ function signature(p: LiveProcess | null): string {
   return p === null ? '' : JSON.stringify(p)
 }
 
+/** Receives each new entry of a registered project's session, for account-wide spend. */
+export type SpendSink = (projectId: string, entry: TranscriptEntry) => void
+
 export class SessionStore {
   #sessions = new Map<string, SessionState>()
   /** Account-wide, not per session: the 5h and 7d plan windows. */
   #planLimits: PlanLimits | null = null
+  #spendSink: SpendSink | null = null
+
+  /** The sink sees exactly what the per-session accumulator sees — deduplicated, project-attributed entries. */
+  onSpendEntry(sink: SpendSink): void {
+    this.#spendSink = sink
+  }
 
   #state(sessionId: string): SessionState {
     let s = this.#sessions.get(sessionId)
@@ -100,6 +109,7 @@ export class SessionStore {
       state.seen.add(e.uuid)
       state.entries.push(e)
       state.usage.add(e)
+      if (state.project && this.#spendSink) this.#spendSink(state.project.id, e)
     }
     if (state.entries.length > MAX_RETAINED_ENTRIES) {
       const dropped = state.entries.splice(0, state.entries.length - MAX_RETAINED_ENTRIES)
@@ -186,6 +196,25 @@ export class SessionStore {
     const summary = this.#summarize(report.sessionId, state)
     state.lastStatus = summary.status
     return summary
+  }
+
+  /**
+   * Drops the project record from any session whose project is no longer
+   * registered. Without this an unregistered project's sessions keep pointing at
+   * a card that no longer exists: they match no card, and they are not counted as
+   * unregistered either, so they simply disappear from the dashboard. Returns the
+   * summaries that changed.
+   */
+  forgetUnregistered(knownProjectIds: Set<string>): SessionSummary[] {
+    const changed: SessionSummary[] = []
+    for (const [id, state] of this.#sessions) {
+      if (!state.project || knownProjectIds.has(state.project.id)) continue
+      state.project = null
+      const summary = this.#summarize(id, state)
+      state.lastStatus = summary.status
+      changed.push(summary)
+    }
+    return changed
   }
 
   planLimits(): PlanLimits | null {

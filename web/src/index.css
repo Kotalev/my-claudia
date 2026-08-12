@@ -1,1 +1,65 @@
 @import "tailwindcss";
+
+/*
+ * Dark-only UI on neutral-950. The two text tokens exist because the raw
+ * neutral ramp has no caption colour that clears WCAG AA: neutral-500 is
+ * 4.18:1 on the page ground and 3.96:1 on a bg-neutral-900/60 card, and it is
+ * used almost exclusively at text-xs. Every honesty caveat in this app is a
+ * caption, so the caption colour is a correctness concern, not a taste one.
+ */
+@theme {
+  /* Captions and caveats. ~5.5:1 on neutral-950, ~5.2:1 on a neutral-900/60 card. */
+  --color-faint: oklch(0.62 0 0);
+
+  /* Secondary text, and the resting state of controls that hover to white:
+     they must be legible before the pointer arrives. Same value as neutral-400. */
+  --color-muted: oklch(0.708 0 0);
+
+  /* One focus colour for the whole app. Identical to sky-500. */
+  --color-focus: oklch(0.685 0.169 237.323);
+
+  /* The two page measures. `page` governs the dashboards; `reading` caps the
+     transcript so a 1440px window stops producing 190-character lines. */
+  --container-page: 88rem;
+  --container-reading: 64rem;
+
+  /* The LiveBand sub-row indent, derived rather than hand-copied:
+     dot(0.5) + gap(0.5) + label w-28(7) + gap(0.5). The literal `pl-[7.5rem]`
+     it replaces was a full rem short of that, in three places. */
+  --live-indent: calc(0.5rem + 0.5rem + 7rem + 0.5rem);
+}
+
+@layer base {
+  /*
+   * The dark ground belongs on the document, not only on <main>. <main> is
+   * viewport-width, so any horizontal overflow or an iOS rubber-band scroll
+   * exposes the browser's white canvas underneath a dark-only UI.
+   * color-scheme additionally makes the native checkbox render dark.
+   */
+  html,
+  body {
+    background-color: var(--color-neutral-950);
+    color: var(--color-neutral-100);
+    color-scheme: dark;
+  }
+
+  /*
+   * Tailwind v4's preflight sets `cursor: default` on buttons to match the
+   * browser default. In a dashboard where almost every surface — a live row, a
+   * session row, a project name — is a button rather than a link, that leaves
+   * nothing on the page looking clickable. One rule here rather than a
+   * `cursor-pointer` on twenty elements, so a new control cannot forget it.
+   */
+  button:not(:disabled),
+  summary,
+  [role="button"]:not([aria-disabled="true"]),
+  label:has(> input[type="checkbox"]),
+  input[type="checkbox"] {
+    cursor: pointer;
+  }
+
+  /* Disabled says "not now", which is not the same as "not a control". */
+  button:disabled {
+    cursor: not-allowed;
+  }
+}

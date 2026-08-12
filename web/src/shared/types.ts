@@ -14,6 +14,8 @@ export type {
   TokenTotals,
   RateBucket,
   LiveProcess,
+  SpendSummary,
+  AccountInfo,
 } from '@shared/types.js'
 
 export type { ToolCall, TranscriptEntry } from '@transcript/types.js'

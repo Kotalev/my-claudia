@@ -41,9 +41,30 @@ function asString(v: unknown): string | null {
 }
 
 function stateOf(status: unknown): LiveState {
-  // `sdk-cli` entries carry no status at all, and an unknown value must not
-  // invent activity — anything we do not recognise reads as idle.
-  return status === 'busy' || status === 'waiting' ? status : 'idle'
+  // Claude Code's own enum is busy | shell | idle | waiting (read out of the 2.1.228
+  // binary). `shell` is a foreground shell command, which is the session working,
+  // not blocked on anyone. `sdk-cli` entries carry no status at all, and an unknown
+  // value must not invent activity — anything we do not recognise reads as idle.
+  if (status === 'busy' || status === 'waiting') return status
+  if (status === 'shell') return 'busy'
+  return 'idle'
+}
+
+/**
+ * Epoch milliseconds, as ISO. Accepts a string too: nothing in the current
+ * release writes one, but this directory belongs to another program and a
+ * format change here must not take the field's neighbours down with it.
+ */
+function asTimestamp(v: unknown): string | null {
+  let at: number
+  if (typeof v === 'number' && Number.isFinite(v) && v > 0) at = v
+  else if (typeof v === 'string') at = Date.parse(v)
+  else return null
+  // Date's range is +-8.64e15 ms; anything beyond makes toISOString throw, and a
+  // throw here would take down refresh() and with it the whole registry. A
+  // timestamp in nanoseconds is the plausible way to get there.
+  const d = new Date(at)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
 }
 
 /**
@@ -67,9 +88,7 @@ export function parseSessionFile(raw: string): LiveProcess | null {
 
   // Null rather than the epoch: an unusable startedAt means we cannot run the
   // pid-reuse check, not that the process started in 1970 and must be dead.
-  const startedAt = typeof o.startedAt === 'number' && Number.isFinite(o.startedAt)
-    ? new Date(o.startedAt).toISOString()
-    : null
+  const startedAt = asTimestamp(o.startedAt)
 
   return {
     sessionId,
@@ -82,6 +101,10 @@ export function parseSessionFile(raw: string): LiveProcess | null {
     startedAt,
     state: stateOf(o.status),
     waitingFor: asString(o.waitingFor),
+    // No fallback to `updatedAt`: that one is rewritten on every touch, so it
+    // would make an hour-old prompt look like it had just appeared. Missing means
+    // unknown, and unknown must not be reported as fresh.
+    statusUpdatedAt: asTimestamp(o.statusUpdatedAt),
   }
 }
 
@@ -186,7 +209,18 @@ export class SessionsRegistry extends EventEmitter {
 
   /** Re-reads the directory and emits `change` with the current live set. */
   async refresh(): Promise<LiveProcess[]> {
-    const names = await readdir(this.dir).catch(() => [] as string[])
+    let names: string[]
+    try {
+      names = await readdir(this.dir)
+    } catch (err) {
+      // A directory that does not exist yet genuinely means nothing is running.
+      // Anything else — a permissions change, the path replaced by a file — means
+      // we cannot see, which is not the same as seeing nothing. Reporting an empty
+      // set there would take every live session through `done` and back again on
+      // recovery, a transition the UI treats as real.
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return this.#live
+      names = []
+    }
     const parsed: LiveProcess[] = []
     for (const name of names) {
       if (!isSessionFile(name)) continue

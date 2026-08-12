@@ -1,5 +1,6 @@
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { resolveClaudeDir } from '../../shared/config.js'
 
 export const HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'Stop', 'PostToolUse'] as const
@@ -27,8 +28,11 @@ export function buildHookEntry(scriptPath: string): HookCommand {
   return { type: 'command', command: shellQuote(scriptPath), timeout: 1 }
 }
 
+// Hooks are a per-machine concern (they carry absolute paths into this
+// checkout), so they belong in settings.local.json, which Claude Code keeps
+// out of version control — never in the project's shared settings.json.
 function settingsPathFor(projectPath: string): string {
-  return join(projectPath, '.claude', 'settings.json')
+  return join(projectPath, '.claude', 'settings.local.json')
 }
 
 export function mergeHooks(
@@ -125,20 +129,35 @@ export async function installHooks(
   scriptPath: string,
   statuslineScript?: string,
 ): Promise<InstallResult> {
-  const settingsPath = settingsPathFor(projectPath)
-  await mkdir(join(projectPath, '.claude'), { recursive: true })
+  // The one file this project must never touch is the Claude data dir's own
+  // settings.json — and registering $HOME as a project would make exactly that
+  // file the install target. Refuse before anything is created.
+  const target = resolve(projectPath)
+  if (target === resolve(homedir())) {
+    throw new Error('refusing to install hooks into the home directory')
+  }
+  if (resolve(join(target, '.claude')) === resolve(resolveClaudeDir())) {
+    throw new Error("refusing to write the Claude data dir's settings.json")
+  }
 
+  const settingsPath = settingsPathFor(projectPath)
   const raw = await readFile(settingsPath, 'utf8').catch(() => null)
+
+  // An unparseable file cannot be merged; writing anyway would replace the
+  // user's permissions/env/hooks with ours alone. Abort instead.
+  let parsed: unknown = {}
+  if (raw !== null) {
+    try { parsed = JSON.parse(raw) } catch {
+      throw new Error(`${settingsPath} could not be parsed as JSON; not overwriting it`)
+    }
+  }
+
+  await mkdir(join(projectPath, '.claude'), { recursive: true })
   let backupPath: string | null = null
   if (raw !== null) {
     // Never overwrite a user's settings without leaving a copy beside it.
     backupPath = `${settingsPath}.backup-${new Date().toISOString().replace(/[:.]/g, '-')}`
     await copyFile(settingsPath, backupPath)
-  }
-
-  let parsed: unknown = {}
-  if (raw !== null) {
-    try { parsed = JSON.parse(raw) } catch { parsed = {} }
   }
 
   const { settings, installed, alreadyPresent } = mergeHooks(parsed, scriptPath)

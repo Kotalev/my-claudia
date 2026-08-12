@@ -1,3 +1,4 @@
+import { Gauge } from 'lucide-react'
 import type { PlanLimits as Limits, RateLimitWindow } from '../shared/types.js'
 
 function resetLabel(iso: string | null): string {
@@ -18,25 +19,25 @@ function Window({ label, window: w }: { label: string; window: RateLimitWindow }
   if (isExpired(w)) {
     return (
       <div className="flex items-center gap-2 text-xs">
-        <span className="w-10 shrink-0 text-neutral-500">{label}</span>
-        <span className="text-neutral-600">window reset — no reading since</span>
+        <span className="w-10 shrink-0 text-muted">{label}</span>
+        <span className="text-faint">window reset — no reading since</span>
       </div>
     )
   }
   const tight = w.usedPercentage > 80
   return (
     <div className="flex items-center gap-2 text-xs">
-      <span className="w-10 shrink-0 text-neutral-500">{label}</span>
+      <span className="w-10 shrink-0 text-muted">{label}</span>
       <span className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-neutral-800">
         <span
           className={`block h-full rounded-full ${tight ? 'bg-amber-500' : 'bg-emerald-500'}`}
           style={{ width: `${Math.max(w.usedPercentage, 1)}%` }}
         />
       </span>
-      <span className={tight ? 'text-amber-400' : 'text-neutral-400'}>
+      <span className={tight ? 'text-amber-400' : 'text-muted'}>
         {Math.round(w.usedPercentage)}%
       </span>
-      <span className="text-neutral-600">{resetLabel(w.resetsAt)}</span>
+      <span className="text-faint">{resetLabel(w.resetsAt)}</span>
     </div>
   )
 }
@@ -55,10 +56,10 @@ export function PlanLimitsBar({ limits }: { limits: Limits | null }) {
   const stale = Number.isFinite(age) && age > 10 * 60_000
   return (
     <section data-testid="plan-limits" className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-1">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Plan</h2>
+      <h2 className="flex items-center gap-1.5 text-xs font-semibold tracking-wide uppercase text-muted"><Gauge aria-hidden="true" className="size-3.5" />Plan</h2>
       {limits.fiveHour && <Window label="5h" window={limits.fiveHour} />}
       {limits.sevenDay && <Window label="7d" window={limits.sevenDay} />}
-      <span data-testid="plan-age" className={`text-xs ${stale ? 'text-amber-500/80' : 'text-neutral-600'}`}>
+      <span data-testid="plan-age" className={`text-xs ${stale ? 'text-amber-500/80' : 'text-faint'}`}>
         {stale ? `last measured ${measuredAgo(limits.updatedAt)} — no session reporting since` : `measured ${measuredAgo(limits.updatedAt)}`}
       </span>
     </section>

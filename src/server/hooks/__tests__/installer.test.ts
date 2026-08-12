@@ -1,8 +1,15 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtemp, mkdir, readFile, writeFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mergeHooks, installHooks, isInstalled, HOOK_EVENTS, mergeStatusLine } from '../installer.js'
+
+// Lets the home-directory guard be tested without ever pointing installHooks at
+// the real home. Everything else (tmpdir) passes through untouched.
+vi.mock('node:os', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:os')>()
+  return { ...actual, homedir: () => process.env.MC_TEST_HOME ?? actual.homedir() }
+})
 
 const SCRIPT = '/opt/mc/scripts/hook-post.sh'
 let dir: string
@@ -53,8 +60,9 @@ describe('mergeHooks', () => {
 })
 
 describe('installHooks', () => {
-  it('creates .claude/settings.json when absent, with no backup', async () => {
+  it('creates .claude/settings.local.json when absent, with no backup', async () => {
     const result = await installHooks(dir, SCRIPT)
+    expect(result.settingsPath.endsWith('settings.local.json')).toBe(true)
     expect(result.backupPath).toBeNull()
     const written = JSON.parse(await readFile(result.settingsPath, 'utf8'))
     expect(written.hooks.SessionStart).toBeDefined()
@@ -64,7 +72,7 @@ describe('installHooks', () => {
   it('backs up an existing settings file before writing', async () => {
     await mkdir(join(dir, '.claude'), { recursive: true })
     const original = JSON.stringify({ model: 'opus' }, null, 2)
-    await writeFile(join(dir, '.claude', 'settings.json'), original)
+    await writeFile(join(dir, '.claude', 'settings.local.json'), original)
 
     const result = await installHooks(dir, SCRIPT)
     expect(result.backupPath).toBeTruthy()
@@ -72,14 +80,16 @@ describe('installHooks', () => {
     expect(JSON.parse(await readFile(result.settingsPath, 'utf8')).model).toBe('opus')
   })
 
-  it('backs up a corrupt settings file rather than losing it', async () => {
+  // An unparseable file means we cannot merge, so writing anything would replace
+  // the user's permissions/env/hooks with ours alone. The install must abort.
+  it('aborts on an unparseable settings file, leaving it untouched', async () => {
     await mkdir(join(dir, '.claude'), { recursive: true })
-    await writeFile(join(dir, '.claude', 'settings.json'), '{ broken json')
+    await writeFile(join(dir, '.claude', 'settings.local.json'), '{ broken json')
 
-    const result = await installHooks(dir, SCRIPT)
-    expect(await readFile(result.backupPath!, 'utf8')).toBe('{ broken json')
+    await expect(installHooks(dir, SCRIPT)).rejects.toThrow(/parse/i)
+    expect(await readFile(join(dir, '.claude', 'settings.local.json'), 'utf8')).toBe('{ broken json')
     const files = await readdir(join(dir, '.claude'))
-    expect(files.some(f => f.startsWith('settings.json.backup-'))).toBe(true)
+    expect(files.some(f => f.startsWith('settings.local.json.backup-'))).toBe(false)
   })
 
   it('reports nothing installed on a second run', async () => {
@@ -89,6 +99,33 @@ describe('installHooks', () => {
 
   it('reports not installed for a project with no settings', async () => {
     expect(await isInstalled(dir, SCRIPT)).toBe(false)
+  })
+})
+
+describe('installHooks target guard', () => {
+  const saved = {
+    configDir: process.env.CLAUDE_CONFIG_DIR,
+    home: process.env.MC_TEST_HOME,
+  }
+  afterEach(() => {
+    if (saved.configDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
+    else process.env.CLAUDE_CONFIG_DIR = saved.configDir
+    if (saved.home === undefined) delete process.env.MC_TEST_HOME
+    else process.env.MC_TEST_HOME = saved.home
+  })
+
+  it('refuses a project whose .claude directory is the Claude data dir', async () => {
+    process.env.CLAUDE_CONFIG_DIR = join(dir, '.claude')
+    await expect(installHooks(dir, SCRIPT)).rejects.toThrow(/claude data dir/i)
+    // The guard fires before anything is created.
+    expect(await readdir(dir)).toEqual([])
+  })
+
+  it('refuses the home directory as an install target', async () => {
+    process.env.MC_TEST_HOME = dir
+    process.env.CLAUDE_CONFIG_DIR = join(dir, 'relocated-claude')
+    await expect(installHooks(dir, SCRIPT)).rejects.toThrow(/home directory/i)
+    expect(await readdir(dir)).toEqual([])
   })
 })
 

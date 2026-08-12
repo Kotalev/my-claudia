@@ -85,6 +85,13 @@ export interface LiveProcess {
   state: LiveState
   /** What the session is waiting for, when Claude Code says. */
   waitingFor: string | null
+  /**
+   * When the status last *changed*, not when the file was last touched: Claude
+   * Code writes this field only on a transition. It is therefore a record of an
+   * event, never a heartbeat — a `waiting` from an hour ago means the prompt has
+   * been open an hour, not that anything is still refreshing it.
+   */
+  statusUpdatedAt: string | null
 }
 
 /** Token counts summed over a set of messages. */
@@ -111,6 +118,25 @@ export interface RateBucket {
   speed: string | null
   inferenceGeo: string | null
   totals: TokenTotals
+}
+
+/**
+ * Account-wide spend across all registered projects, over rolling windows of
+ * local calendar days. An estimate at list prices, not a bill. Each figure is
+ * null when nothing priceable fell inside its window.
+ */
+export interface SpendSummary {
+  todayUsd: number | null
+  sevenDayUsd: number | null
+  thirtyDayUsd: number | null
+  /** Models seen in the 30-day window that we hold no price for. */
+  unpricedModels: string[]
+  updatedAt: string
+}
+
+/** The Claude account logged in on this machine, read from `.claude.json`. */
+export interface AccountInfo {
+  email: string
 }
 
 export interface SessionUsage {

@@ -15,6 +15,7 @@ import { SessionWatcher } from './watcher/index.js'
 import { TasksWatcher, type TasksChange } from './watcher/tasks-watcher.js'
 import { EventHub } from './ws/hub.js'
 import { isAllowedHost, isAllowedOrigin } from './origin-guard.js'
+import { extractToken, loadOrCreateToken, requiresToken, tokenMatches } from './auth.js'
 import { Dispatcher } from './dispatcher/index.js'
 import { registerDispatchRoutes } from './routes/dispatch.js'
 import { registerHookRoutes } from './routes/hooks.js'
@@ -22,6 +23,11 @@ import { registerStatuslineRoutes } from './routes/statusline.js'
 import { registerHookInstallRoutes } from './routes/hook-install.js'
 import { SessionsRegistry } from './live/sessions-registry.js'
 import { AgentsPoller, mergeLive } from './live/agents-poller.js'
+import { SpendLedger } from './usage/spend-ledger.js'
+import { readAccountEmail } from './usage/account.js'
+import { isCountable } from './watcher/usage.js'
+import { projectsDir } from '../shared/config.js'
+import type { AccountInfo, ProjectRecord } from '../shared/types.js'
 
 /** Absolute path to the forwarder, resolved once — a project's settings must not hold a relative path. */
 const HOOK_SCRIPT_PATH = fileURLToPath(new URL('../../scripts/hook-post.sh', import.meta.url))
@@ -36,13 +42,17 @@ declare module 'fastify' {
     dispatcher: Dispatcher
     sessionsRegistry: SessionsRegistry
     hub: EventHub
+    authToken: string
   }
 }
 
 export async function buildServer(
   storePath = join(process.cwd(), 'projects.json'),
+  tokenPath = join(process.cwd(), '.auth-token'),
 ): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: 'info' } })
+
+  const authToken = await loadOrCreateToken(tokenPath)
 
   const registry = new ProjectRegistry(storePath)
   await registry.load()
@@ -71,13 +81,55 @@ export async function buildServer(
   }
   let cachedDocs: Record<string, unknown> = await taskDocs()
 
+  const spendLedger = new SpendLedger()
+
+  // The account file changes only on login/logout, so a lazy re-read every few
+  // minutes is enough — and never on the broadcast path.
+  const ACCOUNT_TTL_MS = 5 * 60_000
+  let account: AccountInfo | null = null
+  let accountReadAt = 0
+  const accountInfo = (): AccountInfo | null => {
+    if (Date.now() - accountReadAt >= ACCOUNT_TTL_MS) {
+      const email = readAccountEmail()
+      account = email === null ? null : { email }
+      accountReadAt = Date.now()
+    }
+    return account
+  }
+
   const hub = new EventHub(() => ({
     projects: registry.list(),
     sessions: store.all(),
     tasks: cachedDocs,
     planLimits: store.planLimits(),
+    spend: spendLedger.summary(),
+    account: accountInfo(),
   }))
   watcher.on('session', session => hub.broadcast({ type: 'session.updated', session }))
+
+  // Entries arrive in bursts during a turn; one spend figure per ~2s is plenty
+  // for a band segment, so the broadcast is a trailing-edge throttle.
+  let spendTimer: NodeJS.Timeout | null = null
+  const scheduleSpendBroadcast = (): void => {
+    if (spendTimer) return
+    spendTimer = setTimeout(() => {
+      spendTimer = null
+      hub.broadcast({ type: 'spend.updated', spend: spendLedger.summary() })
+    }, 2_000)
+    spendTimer.unref()
+  }
+  store.onSpendEntry((projectId, entry) => {
+    spendLedger.addEntry(projectId, entry)
+    if (isCountable(entry)) scheduleSpendBroadcast()
+  })
+  const scanIntoLedger = (p: ProjectRecord): void => {
+    // Not awaited: pricing a month of transcripts must not delay startup or a
+    // registration response. The finished scan announces itself through the
+    // throttled broadcast, and dedup makes the overlap with the live feed safe.
+    void spendLedger.scanProject(p.id, join(projectsDir(), p.escapedDir)).then(scheduleSpendBroadcast)
+  }
+  let spendProjectIds = new Set(registry.list().map(p => p.id))
+  for (const p of registry.list()) scanIntoLedger(p)
 
   const pushLive = (): void => {
     for (const session of store.setLive(mergeLive(sessionsRegistry.list(), agentsPoller.list()))) {
@@ -105,12 +157,37 @@ export async function buildServer(
     if (!isAllowedHost(req.headers.host) || !isAllowedOrigin(req.headers.origin)) {
       return reply.code(403).send({ error: 'forbidden: non-local host or origin' })
     }
+    // The origin guard only keeps browsers honest; the token is what keeps
+    // other local processes out of the API and the socket.
+    if (requiresToken(req.url) && !tokenMatches(extractToken(req.url, req.headers), authToken)) {
+      return reply.code(401).send({ error: 'missing or invalid token' })
+    }
   })
 
   app.get('/api/health', async () => ({ ok: true, version: '0.1.0' }))
   registerProjectRoutes(app, registry, async () => {
     await tasksWatcher.restart()
     cachedDocs = await taskDocs()
+    // The project list only ever reached a client in the snapshot, so an added or
+    // removed project stayed invisible until the tab reconnected.
+    hub.broadcast({ type: 'projects.updated', projects: registry.list() })
+    // A newly registered project's history enters the ledger by scan; an
+    // unregistered one leaves it by dropping its buckets.
+    const currentIds = new Set(registry.list().map(p => p.id))
+    for (const p of registry.list()) if (!spendProjectIds.has(p.id)) scanIntoLedger(p)
+    for (const id of spendProjectIds) {
+      if (!currentIds.has(id)) {
+        spendLedger.removeProject(id)
+        scheduleSpendBroadcast()
+      }
+    }
+    spendProjectIds = currentIds
+    // Sessions of an unregistered project would otherwise keep pointing at a card
+    // that no longer exists, and vanish from the dashboard rather than fall back
+    // to the unregistered list.
+    for (const session of store.forgetUnregistered(currentIds)) {
+      hub.broadcast({ type: 'session.updated', session })
+    }
   })
   registerSessionRoutes(app, store, registry)
   const publishTasks = (projectId: string): void => {
@@ -164,6 +241,7 @@ export async function buildServer(
     })
   }
 
+  app.decorate('authToken', authToken)
   app.decorate('registry', registry)
   app.decorate('store', store)
   app.decorate('watcher', watcher)
@@ -173,6 +251,7 @@ export async function buildServer(
   app.decorate('hub', hub)
   app.addHook('onClose', async () => {
     clearInterval(sweep)
+    if (spendTimer) clearTimeout(spendTimer)
     agentsPoller.stop()
     await Promise.all([watcher.stop(), tasksWatcher.stop(), sessionsRegistry.stop()])
   })
@@ -184,4 +263,8 @@ export async function buildServer(
 if (import.meta.url === `file://${process.argv[1]}`) {
   const app = await buildServer()
   await app.listen({ host: HOST, port: PORT })
+  // The token reaches the browser through this URL once, then lives in
+  // localStorage. In dev the UI is on the Vite port — same query works there.
+  app.log.info(`dashboard: http://${HOST}:${PORT}/?token=${app.authToken} ` +
+    `(dev UI: http://${HOST}:4518/?token=${app.authToken})`)
 }

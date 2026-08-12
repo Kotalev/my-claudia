@@ -91,7 +91,7 @@ Single Node process serving both API and frontend. Local only — binds to `127.
 
 ### 3.4 Hook ingestion (the deterministic channel)
 
-Installable per project (dashboard offers a "install hooks" helper that merges into `.claude/settings.json`):
+Installable per project (dashboard offers a "install hooks" helper that merges into `.claude/settings.local.json` — hooks carry absolute paths into this checkout, so they are per-machine and stay out of version control):
 
 - `SessionStart`, `Stop`, `SessionEnd`, `PostToolUse` → `curl -s -X POST http://127.0.0.1:4517/api/hooks --data-binary @-` (hook stdin JSON forwarded verbatim; a tiny wrapper script `scripts/hook-post.sh` adds the event name and never blocks: always exits 0, 1s timeout, silent on failure so Claude Code is never slowed or broken when the dashboard is down).
 - This gives the dashboard push events with `session_id`, `cwd`, `transcript_path` — no polling race, stable across Claude Code releases (hooks are a documented public interface, unlike the transcript format).
@@ -121,7 +121,8 @@ Installable per project (dashboard offers a "install hooks" helper that merges i
 - Bind `127.0.0.1` only; refuse other hosts. No auth in v1 *because* of this — revisit if that ever changes.
 - Dispatcher only runs `claude` with controlled flags; task text is passed as a single argv element (no shell interpolation).
 - Hook helper script must be non-blocking and fail-silent (never break Claude Code when dashboard is down).
-- Dashboard never writes to `~/.claude` except the opt-in hook install into a project's `.claude/settings.json` (with a backup of the previous file).
+- Dashboard never writes to `~/.claude` except the opt-in hook install into a project's `.claude/settings.local.json` (with a backup of the previous file). The installer refuses `$HOME` and any path whose `.claude` is the Claude data dir, and aborts on an unparseable settings file instead of replacing it.
+- Every `/api` route and `/ws` require a token (random, persisted 0600 in `.auth-token`, handed to the browser once via `?token=`), except the hook/statusline sinks and `/api/health` — loopback binding alone does not keep other local processes out.
 
 ---
 
@@ -206,6 +207,25 @@ pid already proves they are alive.
 4. Live but quiet → `idle`.
 5. No live entry and never seen live → the v1 time-decay rule.
 
+Claude Code's own status enum, read out of the 2.1.228 binary, is
+`busy | shell | idle | waiting`. `waiting` is written exactly when a dialog is
+blocking the session: a permission prompt, a sandbox request, an elicitation, a
+managed-settings prompt. `shell` is a foreground shell command — the session
+working, so it maps to `active`. `idle` is a session sitting at an empty prompt,
+which is nobody's problem and must never be mistaken for `waiting`.
+
+`statusUpdatedAt` is written **only on a transition** (`...status !== undefined &&
+{ statusUpdatedAt: now }`). It is a record of an event, never a heartbeat: a
+`waiting` stamped an hour ago means the prompt has been open an hour, not that
+anything is still refreshing it. Nothing falls back to `updatedAt`, which is
+rewritten on every touch and would make an old prompt look new.
+
+A source that cannot read is not a source reporting nothing. `readdir` failing
+with `ENOENT` genuinely means no sessions; any other error keeps the previous set
+and emits nothing, because an empty answer would take every live session through
+`done` and back again on recovery — a transition the UI, and now the notifier,
+treat as real.
+
 ### 8.3 Project resolution without un-escaping
 
 Escaping is lossy, so it is never reversed (`my-claudia` would become
@@ -262,6 +282,133 @@ source is the statusline hook. It is installed **at project scope**, never in th
 Claude data dir, and it wraps whatever statusline the user already runs, passing
 the payload on and printing that command's output. Verified: 66ms with the
 dashboard down, exit 0 even when the passthrough command is broken.
+
+### 8.8 Notifications
+
+Opt-in, one button, no settings panel. A notification fires only on a transition
+*into* `waiting`, and only when: the user opted in and the browser granted
+permission; the previous status is known (a snapshot seeds the table silently, so
+connecting, reconnecting and resnapshotting after a gap are all quiet); the
+process is not a background agent (those report no transition time at all, and
+the only real ones observed had been abandoned for weeks); the transition is
+under five minutes old; the user is not already looking at that session in a
+focused tab; and that session has not notified in the last minute.
+
+Notifications are withdrawn when the session leaves `waiting` — on the delta
+path, and again from every snapshot, which closes anything whose session is no
+longer waiting. The second one is not redundant: if the socket blips while the
+user answers the prompt, the transition out of `waiting` never arrives as a
+delta, and the snapshot overwrites the status the delta path would compare
+against. A Web Notification does not close itself, and a tray still saying
+"waiting for you" after the prompt was answered is worse than no notification.
+
+Accepted and not solved: one notification per open tab (softened by tagging on
+session id), and a block that begins while the tab is disconnected is never
+announced — the price of a silent reconnect.
+
+### 8.9 Why dispatch stays on `claude -p`
+
+The Agent SDK (`@anthropic-ai/claude-agent-sdk`) was evaluated and rejected. It
+does not remove the child process, it hides one: the package bundles its own
+native `claude` binary (288 MB) and speaks the same `stream-json` this repo
+already parses in 155 lines. Billing is *not* the objection — without
+`ANTHROPIC_API_KEY` it reads the same subscription credential the CLI does. The
+objections are structural: `interrupt()` is unavailable for a string prompt, so
+cancellation falls from an immediate SIGTERM over the process tree to a ~2s
+graceful abort with no exit code; the bundled binary is a different version from
+the CLI whose transcripts `src/transcript/` parses; `sdk-cli` registry entries
+carry no status, so every dispatched run would read `idle` forever; and the seam
+that proves the argv-not-shell rule of section 4 *is* the spawn. Revisit only for
+multi-turn dispatch, in-process hooks, or per-run `canUseTool` approval.
+
+### 8.10 Frontend layout and colour
+
+Decisions the UI must not drift back from. They exist because the dashboard
+broke in ways screenshots caught and code review did not.
+
+**One shell.** `web/src/shared/Page.tsx` owns the only padding scale
+(`p-4 sm:p-6 lg:p-8`) and the only two measures: `--container-page` (88rem) for
+the dashboards, `--container-reading` (64rem) for the transcript. A flat `p-8`
+spent a sixth of a 390px viewport on margin, and nothing capped width at all,
+so a 1440px window pinned content left and a transcript line ran ~190
+characters. No screen sets its own padding or max-width. The dark ground is on
+`html, body`, not only on `<main>` — `<main>` is viewport-width, so overflow or
+rubber-band scroll exposed the white canvas.
+
+**The `min-w-0` rule.** A grid or flex item defaults to `min-width: auto`, so
+`truncate` on a descendant does nothing unless every ancestor up to a
+fixed-width box carries `min-w-0`, and a grid track holding user text is
+`minmax(0, …)`. This — not padding — was the cause of every horizontal
+scrollbar: an untruncated session prompt widened a project card, which widened
+its implicit grid track, which pushed the document sideways. On the Project
+screen the same defect collapsed the task board to one word per line. A grid
+with no `grid-cols-*` class gets an implicit auto track, so the single-column
+case needs an explicit `grid-cols-1`.
+
+**Breakpoints follow the container, not the viewport.** The Project split used
+to arrive at `lg`, the same breakpoint at which the board went 3-up, so task
+columns got *narrower* as the window grew. The split is now `xl`, the board is
+`sm:grid-cols-2 xl:grid-cols-3`, and every column holds at least ~300px.
+
+**Two text tokens, by role.** `--color-faint` for captions and caveats,
+`--color-muted` for secondary text and for controls at rest that hover to
+white. The raw neutral ramp has no caption colour that clears WCAG AA:
+`neutral-500` is 4.18:1 on the page ground and 3.96:1 on a card, and every
+honesty caveat in this app is a caption. A caveat nobody can read was not
+made — that makes contrast a correctness concern here, not a taste one.
+
+**Status is never colour alone.** `waiting` amber and `active` emerald are the
+pair a red-green deficiency collapses, so `StatusDot` carries the label as
+visible text or as `sr-only`. `done` is an outline rather than a fill: it was
+`bg-neutral-700`, 1.9:1 against the page and indistinguishable from the
+neutral-800 borders beside it, so it read as an empty slot. Idle and done now
+differ by form as well as luminance.
+
+**Screen state lives in the URL.** `/p/<projectId>/s/<sessionId>`, parsed by
+`web/src/shared/route.ts`. It was `useState`, so the browser's Back button left
+the app and a session could not be linked to. The server already serves
+`index.html` for any non-`/api`, non-`/ws` 404, so this needed no server change.
+
+**One focus treatment**, `FOCUS_RING` in `web/src/shared/focus.ts`. Everything
+revealed itself on hover only; a keyboard user got the UA hairline against
+neutral-950, and `NewTaskForm` explicitly killed even that with `outline-none`.
+
+**Affordances are disabled, never removed.** The dispatch button used to vanish
+from every card the moment a run started, silently reflowing the board and
+explaining nothing.
+
+**The Session screen is a viewport-height column.** `h-dvh` + `flex-col`, with
+the header and the telemetry panel `shrink-0` and only the transcript scrolling
+(`min-h-0 flex-1 overflow-y-auto`). Without `min-h-0` a flex child refuses to
+shrink below its content and the page grows a second scrollbar instead. Follow
+tracks that container's scroll, not the window's. The telemetry panel is a
+`<details>` whose default open state is read once from `min-width: 640px` — it
+sits in the fixed region, so an always-open panel leaves a 390px viewport about
+three lines of transcript.
+
+**The Live band groups by directory.** The key is `projectId ?? projectPath`,
+never the label: a registered project has an id, an unregistered one has only a
+path, and two directories can share a basename — a worktree beside its checkout
+is exactly that. Two processes with no known path are two groups, because
+nothing says they share a project. A group heading carries the *registered*
+name where there is one, since it opens that project's card and the process's
+self-reported name drifts from the registration. Groups sort by their most
+urgent member, so a project with something blocked on the user stays first,
+exactly as a blocked row did before grouping. With the project name promoted to
+the heading, the row leads with the prompt — the only thing that ever
+distinguished two sessions in one project.
+
+**Cursors are a base rule, not a utility.** Tailwind v4's preflight sets
+`cursor: default` on buttons, and almost every clickable surface here is a
+button rather than a link — a live row, a session row, a project name — so
+nothing on the page looked clickable. `web/src/index.css` sets `pointer` on
+buttons, summaries and checkbox labels, and `not-allowed` on a disabled button,
+so a control added later cannot forget it.
+
+**Icons are lucide-react, and always accompany a label** — never replace one.
+Decorative glyphs carry `aria-hidden="true"`, so the accessible name stays the
+visible text. It is a devDependency alongside react: it is bundled, not
+required at runtime by the server.
 
 ## 7. Risks
 

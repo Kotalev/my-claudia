@@ -25,6 +25,7 @@ const REAL = JSON.stringify({
   name: 'my-claudia',
   status: 'busy',
   updatedAt: 1786526868137,
+  statusUpdatedAt: 1786526868137,
 })
 
 describe('isSessionFile', () => {
@@ -123,7 +124,7 @@ function proc(over: Partial<LiveProcess> = {}): LiveProcess {
   return {
     sessionId: 's', pid: process.pid, cwd: null, name: null, kind: 'interactive',
     entrypoint: 'cli', version: null, startedAt: new Date().toISOString(),
-    state: 'idle', waitingFor: null, ...over,
+    state: 'idle', waitingFor: null, statusUpdatedAt: null, ...over,
   }
 }
 
@@ -215,4 +216,113 @@ describe('SessionsRegistry', () => {
       await reg.stop()
     }
   }, 10_000)
+})
+
+describe('parseSessionFile — when the status last changed', () => {
+  const withStatus = (over: Record<string, unknown>): string =>
+    JSON.stringify({ ...JSON.parse(REAL), ...over })
+
+  it('reads statusUpdatedAt as epoch milliseconds', () => {
+    expect(parseSessionFile(REAL)?.statusUpdatedAt).toBe(new Date(1786526868137).toISOString())
+  })
+
+  it('accepts an ISO string, in case the field ever changes shape', () => {
+    const p = parseSessionFile(withStatus({ statusUpdatedAt: '2026-08-12T10:00:00.000Z' }))
+    expect(p?.statusUpdatedAt).toBe('2026-08-12T10:00:00.000Z')
+  })
+
+  it('does not fall back to updatedAt, which is rewritten on every touch', () => {
+    // updatedAt would make an hour-old prompt look like it had just appeared.
+    const p = parseSessionFile(withStatus({ statusUpdatedAt: undefined, updatedAt: Date.now() }))
+    expect(p?.statusUpdatedAt).toBeNull()
+  })
+
+  it('reads an unusable value as unknown rather than sinking the entry', () => {
+    // 1e300 and a nanosecond timestamp are past Date's +-8.64e15 range, where
+    // toISOString throws rather than returning garbage — and a throw in here
+    // takes down refresh(), and with it the whole live registry.
+    for (const bad of ['abc', null, -1, 0, {}, [], 1e300, 1750000000000000000, '9999999999999999999']) {
+      const p = parseSessionFile(withStatus({ statusUpdatedAt: bad }))
+      expect(p).not.toBeNull()
+      expect(p?.statusUpdatedAt).toBeNull()
+    }
+  })
+})
+
+describe('parseSessionFile — the status enum Claude Code actually writes', () => {
+  const withStatus = (status: unknown): string =>
+    JSON.stringify({ ...JSON.parse(REAL), status })
+
+  it('reads waiting, which is the only state that means the user is needed', () => {
+    expect(parseSessionFile(withStatus('waiting'))?.state).toBe('waiting')
+  })
+
+  it('reads a foreground shell command as the session working, not blocked', () => {
+    expect(parseSessionFile(withStatus('shell'))?.state).toBe('busy')
+  })
+
+  it('reads idle as idle and anything unknown as idle too', () => {
+    expect(parseSessionFile(withStatus('idle'))?.state).toBe('idle')
+    expect(parseSessionFile(withStatus('something-new'))?.state).toBe('idle')
+    expect(parseSessionFile(withStatus(undefined))?.state).toBe('idle')
+  })
+})
+
+describe('SessionsRegistry — a source that cannot see is not a source that says "nothing"', () => {
+  let dir: string
+  let reg: SessionsRegistry | null = null
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'mc-live-')) })
+  afterEach(async () => { await reg?.stop(); reg = null; await rm(dir, { recursive: true, force: true }) })
+
+  const liveFile = (): string => JSON.stringify({
+    ...JSON.parse(REAL), pid: process.pid, startedAt: Date.now(),
+  })
+
+  it('keeps the previous set when the directory cannot be read', async () => {
+    const sessions = join(dir, 'sessions')
+    await mkdir(sessions)
+    await writeFile(join(sessions, `${process.pid}.json`), liveFile())
+    reg = new SessionsRegistry(sessions)
+    expect(await reg.refresh()).toHaveLength(1)
+
+    // Replace the directory with a plain file: readdir now fails with ENOTDIR,
+    // which is "we cannot see", not "nothing is running".
+    await rm(sessions, { recursive: true })
+    await writeFile(sessions, 'not a directory')
+
+    let emitted = 0
+    reg.on('change', () => { emitted++ })
+    expect(await reg.refresh()).toHaveLength(1)
+    expect(emitted).toBe(0)
+  })
+
+  it('reports an empty set when the directory genuinely does not exist yet', async () => {
+    reg = new SessionsRegistry(join(dir, 'never-created'))
+    expect(await reg.refresh()).toEqual([])
+  })
+
+  it('empties the set when the directory is removed, rather than pinning the last session live', async () => {
+    // The distinguishing case for ENOENT: without it, quitting the last session
+    // would leave it showing as live for as long as the dashboard runs.
+    const sessions = join(dir, 'sessions')
+    await mkdir(sessions)
+    await writeFile(join(sessions, `${process.pid}.json`), liveFile())
+    reg = new SessionsRegistry(sessions)
+    expect(await reg.refresh()).toHaveLength(1)
+
+    await rm(sessions, { recursive: true })
+    expect(await reg.refresh()).toEqual([])
+  })
+
+  it('survives a session file whose timestamps are out of Date range', async () => {
+    const sessions = join(dir, 'sessions')
+    await mkdir(sessions)
+    await writeFile(join(sessions, `${process.pid}.json`), JSON.stringify({
+      ...JSON.parse(liveFile()), statusUpdatedAt: 1750000000000000000,
+    }))
+    reg = new SessionsRegistry(sessions)
+    const live = await reg.refresh()
+    expect(live).toHaveLength(1)
+    expect(live[0]!.statusUpdatedAt).toBeNull()
+  })
 })

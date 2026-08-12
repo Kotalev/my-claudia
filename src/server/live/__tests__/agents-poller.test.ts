@@ -50,7 +50,7 @@ describe('parseAgentsJson', () => {
 function proc(over: Partial<LiveProcess>): LiveProcess {
   return {
     sessionId: 's', pid: null, cwd: null, name: null, kind: 'interactive', entrypoint: null,
-    version: null, startedAt: new Date(0).toISOString(), state: 'idle', waitingFor: null, ...over,
+    version: null, startedAt: new Date(0).toISOString(), state: 'idle', waitingFor: null, statusUpdatedAt: null, ...over,
   }
 }
 

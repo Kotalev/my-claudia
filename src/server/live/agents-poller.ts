@@ -85,6 +85,10 @@ export function parseAgentsJson(raw: string, now = Date.now()): LiveProcess[] {
         : null,
       state: stateOf(o),
       waitingFor: asString(o.waitingFor),
+      // `claude agents --json` reports no transition time, only the start. A
+      // background agent's block is therefore never dateable, which is why the
+      // notification rule refuses to fire for one.
+      statusUpdatedAt: null,
     }
     if (isFresh(proc, now)) out.push(proc)
   }

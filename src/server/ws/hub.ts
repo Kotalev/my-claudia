@@ -1,10 +1,12 @@
-import type { ProjectRecord, SessionSummary } from '../../shared/types.js'
+import type { AccountInfo, ProjectRecord, SessionSummary, SpendSummary } from '../../shared/types.js'
 
 export interface SnapshotPayload {
   projects: ProjectRecord[]
   sessions: SessionSummary[]
   tasks: Record<string, unknown>
   planLimits: unknown
+  spend: SpendSummary
+  account: AccountInfo | null
 }
 
 export type ServerEvent =
@@ -14,6 +16,8 @@ export type ServerEvent =
   | { type: 'dispatch.output'; runId: string; chunk: string }
   | { type: 'dispatch.updated'; run: unknown }
   | { type: 'plan.updated'; planLimits: unknown }
+  | { type: 'spend.updated'; spend: SpendSummary }
+  | { type: 'projects.updated'; projects: ProjectRecord[] }
   | { type: 'pong' }
 
 type Send = (payload: string) => void

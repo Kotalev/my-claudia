@@ -42,7 +42,7 @@ export function maxUsage(a: EntryUsage, b: EntryUsage): EntryUsage {
   }
 }
 
-function addInto(totals: TokenTotals, u: EntryUsage, sign: 1 | -1): void {
+export function addInto(totals: TokenTotals, u: EntryUsage, sign: 1 | -1): void {
   totals.inputTokens += sign * u.inputTokens
   totals.outputTokens += sign * u.outputTokens
   totals.cacheReadInputTokens += sign * u.cacheReadInputTokens

@@ -60,7 +60,7 @@
 - [ ] **Step 1: Initialize package.json and install dependencies**
 
 ```bash
-cd /Users/ivanhristev/Projects/my-claudia
+cd /Users/dev/Projects/my-claudia
 npm init -y
 npm pkg set type=module name=claude-mission-control version=0.1.0 private=true
 npm i fastify @fastify/websocket @fastify/static chokidar
@@ -534,10 +534,10 @@ declare module 'fastify' {
 npm run dev:server &
 curl -s -X POST http://127.0.0.1:4517/api/projects \
   -H 'content-type: application/json' \
-  -d '{"path":"/Users/ivanhristev/Projects/my-claudia"}' | jq
+  -d '{"path":"/Users/dev/Projects/my-claudia"}' | jq
 curl -s http://127.0.0.1:4517/api/projects | jq
 ```
-Expected: the POST returns a project with `escapedDir: "-Users-ivanhristev-Projects-my-claudia"`; the GET lists it. Kill the server afterwards.
+Expected: the POST returns a project with `escapedDir: "-Users-dev-Projects-my-claudia"`; the GET lists it. Kill the server afterwards.
 
 - [ ] **Step 8: Update TASKS.md and commit**
 
@@ -578,14 +578,14 @@ The format contract below was verified on 2026-08-12 against a real transcript: 
 
 ```bash
 mkdir -p test/fixtures
-SRC=~/.claude/projects/-Users-ivanhristev-Projects-my-claudia
+SRC=~/.claude/projects/-Users-dev-Projects-my-claudia
 F=$(ls -t $SRC/*.jsonl | head -1)
 head -c 400000 "$F" | head -120 > test/fixtures/transcript-sample.jsonl
 ```
 
 Then anonymize: replace the real home path with `/Users/dev` throughout the fixture.
 ```bash
-sed -i '' 's#/Users/ivanhristev#/Users/dev#g' test/fixtures/transcript-sample.jsonl
+sed -i '' 's#/Users/dev#/Users/dev#g' test/fixtures/transcript-sample.jsonl
 ```
 
 Write `test/fixtures/transcript-malformed.jsonl` by hand:
@@ -3563,7 +3563,7 @@ Expected: `exit=0`, and real time well under 1 second — the request is backgro
 With the server running:
 ```bash
 npm run dev:server &
-echo '{"hook_event_name":"SessionStart","session_id":"hook-test-1","cwd":"/Users/ivanhristev/Projects/my-claudia"}' | ./scripts/hook-post.sh
+echo '{"hook_event_name":"SessionStart","session_id":"hook-test-1","cwd":"/Users/dev/Projects/my-claudia"}' | ./scripts/hook-post.sh
 sleep 1
 curl -s http://127.0.0.1:4517/api/sessions | jq '.sessions[] | select(.sessionId=="hook-test-1") | .status'
 ```

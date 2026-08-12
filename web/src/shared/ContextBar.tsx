@@ -17,7 +17,7 @@ export function ContextBar(
 
   if (usage.contextTokens === null) {
     return (
-      <span className="text-xs text-neutral-600" data-testid="context-empty">
+      <span className="text-xs text-faint" data-testid="context-empty">
         — no assistant turn yet
       </span>
     )
@@ -35,14 +35,14 @@ export function ContextBar(
           />
         </span>
       )}
-      <span className={tight ? 'text-amber-400' : 'text-neutral-400'}>
+      <span className={tight ? 'text-amber-400' : 'text-muted'}>
         {compactTokens(usage.contextTokens)}
         {window !== null && ` / ${compactTokens(window)}`}
       </span>
-      {model && <span className="text-neutral-500">{shortModel(model)}</span>}
-      {usage.effort && <span className="text-neutral-600">{usage.effort}</span>}
+      {model && <span className="text-muted">{shortModel(model)}</span>}
+      {usage.effort && <span className="text-faint">{usage.effort}</span>}
       {detailed && usage.contextAt && (
-        <span className="text-neutral-600">measured {agoLabel(usage.contextAt)}</span>
+        <span className="text-faint">measured {agoLabel(usage.contextAt)}</span>
       )}
     </div>
   )

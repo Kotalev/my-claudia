@@ -35,7 +35,7 @@ Used precisely throughout the code — if you mean one of these, use the word.
 - Layout: `src/server/` (API, watcher, dispatcher), `src/transcript/` (JSONL parsing — ALL transcript format assumptions live here and nowhere else), `src/tasks/` (TASKS.md parse/serialize), `web/` (frontend), `scripts/` (hook helper scripts), `test/fixtures/` (real anonymized transcript samples).
 - The transcript JSONL format is internal to Claude Code and changes between releases (the official docs say so). The parser must tolerate and skip unknown line shapes without crashing — never assume the fixture format is exhaustive. Prefer hook events over transcript parsing wherever both are available.
 - Resolve the Claude data dir as `${CLAUDE_CONFIG_DIR:-~/.claude}` — never hardcode `~/.claude`.
-- Never modify anything under the Claude data dir. The only exception: the opt-in hook installer may edit a target project's `.claude/settings.json`, and must back it up first.
+- Never modify anything under the Claude data dir. The only exception: the opt-in hook installer may edit a target project's `.claude/settings.local.json`, and must back it up first.
 - Hook helper scripts must be fail-silent: 1s timeout, always exit 0. Breaking the user's Claude Code sessions is the worst possible bug in this project.
 - Dispatcher: pass task text as a single argv element to `claude` — no shell string interpolation.
 

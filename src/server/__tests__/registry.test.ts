@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProjectRegistry } from '../registry.js'
@@ -49,5 +49,34 @@ describe('ProjectRegistry', () => {
     const reg = new ProjectRegistry(store)
     await reg.load()
     expect(reg.list()).toEqual([])
+  })
+
+  it('removes a registration without touching the directory', async () => {
+    const store = join(dir, 'projects.json')
+    const reg = new ProjectRegistry(store); await reg.load()
+    const rec = await reg.add(dir)
+
+    expect(await reg.remove(rec.id)).toBe(true)
+    expect(reg.list()).toEqual([])
+    expect((await stat(dir)).isDirectory()).toBe(true)
+
+    const reloaded = new ProjectRegistry(store); await reloaded.load()
+    expect(reloaded.list()).toEqual([])
+  })
+
+  it('reports nothing removed for an unknown id rather than throwing', async () => {
+    const reg = new ProjectRegistry(join(dir, 'projects.json')); await reg.load()
+    await reg.add(dir)
+    expect(await reg.remove('nope')).toBe(false)
+    expect(reg.list()).toHaveLength(1)
+  })
+
+  it('leaves the other registrations alone', async () => {
+    const other = await mkdtemp(join(tmpdir(), 'mc-reg-'))
+    const reg = new ProjectRegistry(join(dir, 'projects.json')); await reg.load()
+    const a = await reg.add(dir)
+    const b = await reg.add(other)
+    await reg.remove(a.id)
+    expect(reg.list().map(r => r.id)).toEqual([b.id])
   })
 })

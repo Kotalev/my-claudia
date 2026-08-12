@@ -5,3 +5,5 @@ web/dist/
 projects.json
 *.log
 .screenshots/
+.auth-token
+.claude/settings*.backup-*

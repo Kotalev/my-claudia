@@ -42,6 +42,20 @@ export class ProjectRegistry {
     return record
   }
 
+  /**
+   * Unregisters a project. Only the registration is removed — the directory
+   * itself is never touched, and neither is anything under the Claude data dir.
+   * Returns false when there was nothing to remove, so removing twice is not an
+   * error the caller has to handle.
+   */
+  async remove(id: string): Promise<boolean> {
+    const before = this.#records.length
+    this.#records = this.#records.filter(r => r.id !== id)
+    if (this.#records.length === before) return false
+    await this.#persist()
+    return true
+  }
+
   async #persist(): Promise<void> {
     await writeFile(this.storePath, JSON.stringify({ projects: this.#records }, null, 2) + '\n', 'utf8')
   }

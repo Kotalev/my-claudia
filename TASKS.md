@@ -3,11 +3,25 @@
 ## Todo
 
 
+
 ## In progress
 
 
 ## Done
 
+- [x] **T-039** Spend band: 30-day daily ledger over registered projects' transcripts, today/7d/30d cost in the header band, live via `spend.updated`; account email in the header. Design: docs/superpowers/specs/2026-08-12-spend-tracking-design.md `#m10` `#p1` (2026-08-12)
+- [x] **T-044** Live rows show the session's own name (`/rename`) before the prompt; backend already carried it, the UI never rendered it `#m10` `#p3` (2026-08-12)
+- [x] **T-040** Installer guard: refuse to write settings when the target is the Claude data dir or `$HOME` (audit S1) `#p1` (2026-08-12)
+- [x] **T-041** Installer: abort on an unparseable existing settings file instead of silently replacing it (audit S2) `#p1` (2026-08-12)
+- [x] **T-042** Token auth on the API and `/ws`: random token persisted 0600, required everywhere except hook sinks and health, passed to the browser via `?token=` (audit S3) `#p1` (2026-08-12)
+- [x] **T-043** Hook installer targets `.claude/settings.local.json` instead of `settings.json` — hooks carry per-machine absolute paths `#p2` (2026-08-12)
+- [x] **T-038** Group the Live band by project; rows lead with the prompt, headings open the project card `#m9` `#p2` (2026-08-12)
+- [x] **T-037** Transcript in its own scroll container so the header and telemetry stay put; lucide icons across every screen `#m9` `#p2` (2026-08-12)
+- [x] **T-036** UI/UX pass over every screen: token layer, one page shell, the min-w-0 chain, URL routing, focus rings, status without colour alone `#m9` `#p1` (2026-08-12)
+- [x] **T-032** Notifications on entering `waiting`: opt-in button, snapshot seeds silently, staleness and cooldown guards, withdrawn when answered `#m8` `#p1` (2026-08-12)
+- [x] **T-033** Agent SDK dispatch — **won't do**. Researched and rejected; reasons recorded in SPEC.md 8.9 `#m8` `#p2` (2026-08-12)
+- [x] **T-035** `waiting` correctness: read `statusUpdatedAt`, map `shell` to busy, and stop treating an unreadable sessions dir as "nothing running" `#m8` `#p1` (2026-08-12)
+- [x] **T-034** Unregister a project from the UI: `DELETE /api/projects/:id`, a `projects.updated` broadcast so open tabs follow, remove button on the card `#m8` `#p3` (2026-08-12)
 - [x] **T-029** Capture `total_cost_usd` + `num_turns` onto `RunHandle` instead of only rendering them into a string; label "reported by claude" `#m7` `#p3` (2026-08-12)
 - [x] **T-030** Statusline installer with backup + passthrough of the user's existing statusline; surfaces 5h/7d plan limits. Must never break a session `#m7` `#p2` (2026-08-12)
 - [x] **T-031** Record in SPEC.md: process definition, liveness precedence, occupancy formula and its one-turn lag, dedup rule, pricing policy `#m5` `#p2` (2026-08-12)
@@ -42,6 +56,29 @@
 
 ## Progress log
 
+- 2026-08-12 17:30 T-039 — Done: SpendLedger (31d daily buckets, scan+live dedup by messageId, epoch-guarded scan cancel), spend.updated, SPEND band + account email. 407 tests, lint clean, browser-verified.
+- 2026-08-12 17:25 T-039 — Review fixes: null window renders n/a not $0.00; unpriced-only spend keeps the band visible.
+- 2026-08-12 17:15 T-044 — kind chip (cli/bg) and short session id dropped from Live rows at user request; the session screen keeps the id.
+- 2026-08-12 17:05 T-044 — /rename was already in live.name end-to-end; only the row never rendered it. Name now leads the row. 405 tests, browser-verified.
+- 2026-08-12 16:55 T-040..T-043 — Done. 405 tests, lint clean; 401/200 verified live via curl, dashboard + session view verified in browser.
+- 2026-08-12 16:50 T-043 — Installer now writes settings.local.json; projects installed before this keep hooks in settings.json (incl. this repo).
+- 2026-08-12 16:40 T-040..T-042 — Started from the full-project audit (docs/verification/full-project-risk-audit.md), S1-S3.
+- 2026-08-12 16:05 T-039 — Design approved and written to docs/superpowers/specs/; implementation starting.
+- 2026-08-12 15:15 T-038 — Live band grouped by directory (projectId ?? projectPath, never the label — a worktree shares its checkout's basename).
+- 2026-08-12 15:09 T-037 — Cursors as a base rule: v4 preflight makes buttons `cursor: default`, and nearly every surface here is a button.
+- 2026-08-12 14:56 T-037 — Transcript scrolls in its own box (h-dvh flex column, min-h-0). Telemetry collapsible, closed below sm or it leaves 3 lines.
+- 2026-08-12 14:55 T-037 — lucide-react added as a devDependency; icons accompany labels, never replace them. Bundle +2.5kB gzip.
+- 2026-08-12 14:47 T-036 — Done. lint clean, 358 tests, verified at 390/1440 on all three screens; every honesty caveat still in the tree.
+- 2026-08-12 14:45 T-036 — Decisions recorded in SPEC 8.10: one shell, the min-w-0 rule, faint/muted by role, status never colour alone.
+- 2026-08-12 14:20 T-036 — Cause of every horizontal scrollbar was min-width:auto on flex/grid items, not padding — truncate needs min-w-0 on every ancestor.
+- 2026-08-12 14:10 T-036 — Audit workflow: 6 lenses, 114 agents, 50 findings survived adversarial verification.
+- 2026-08-12 13:58 T-036 — Started. Screenshots: overview pinned left at 1440, project board collapsed to one word per line, mobile scrolls sideways.
+- 2026-08-12 14:40 — Reconnect verified in browser: answered while the tab was offline, snapshot withdrew the notification. Console clean.
+- 2026-08-12 14:30 — v3 review: 24 findings, 19 refuted, 5 fixed. Worst: a snapshot never withdrew a notification, losing it permanently.
+- 2026-08-12 14:20 T-032 — Verified in browser against a fake registry: one notification on busy->waiting, withdrawn on the way back, silence for a 10-minute-old prompt.
+- 2026-08-12 14:10 T-033 — Agent SDK rejected: it bundles a 288MB claude binary and speaks the same stream-json; cancellation gets worse.
+- 2026-08-12 14:05 T-035 — Status enum read out of the 2.1.228 binary: busy|shell|idle|waiting, and statusUpdatedAt is written only on a transition.
+- 2026-08-12 13:45 T-034 — Projects can be unregistered; add/remove now broadcast, they only ever reached a tab via the snapshot.
 - 2026-08-12 14:00 — Background agents blocked for over 7 days are no longer shown; they are litter, not live processes.
 - 2026-08-12 13:50 — v2 review: 29 findings, 18 refuted, 11 fixed. Worst: cache writes priced at zero on the older usage shape.
 - 2026-08-12 13:48 — Retention capped at 4000 entries/session; state was growing ~28 MB/day with no eviction.

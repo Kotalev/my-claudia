@@ -133,7 +133,7 @@ function live(over: Partial<LiveProcess> = {}): LiveProcess {
   return {
     sessionId: 's1', pid: 10478, cwd: '/Users/dev/proj', name: 'proj', kind: 'interactive',
     entrypoint: 'cli', version: '2.1.228', startedAt: '2026-08-12T09:00:00.000Z',
-    state: 'busy', waitingFor: null, ...over,
+    state: 'busy', waitingFor: null, statusUpdatedAt: null, ...over,
   }
 }
 
@@ -271,5 +271,76 @@ describe('SessionStore — what counts as a live change', () => {
     const changed = store.setLive([live({ state: 'waiting', waitingFor: 'your answer to a question' })])
     expect(changed).toHaveLength(1)
     expect(changed[0]!.live?.waitingFor).toBe('your answer to a question')
+  })
+})
+
+describe('SessionStore — a project that is no longer registered', () => {
+  const project = {
+    id: 'p1', path: '/registered/path', name: 'p', escapedDir: '-registered-path',
+    addedAt: '2026-08-12T00:00:00.000Z',
+  }
+
+  it('drops the record so the session falls back to unregistered instead of vanishing', () => {
+    const store = new SessionStore()
+    store.apply('s1', [entry()], stats, project)
+    expect(store.get('s1')?.projectId).toBe('p1')
+
+    const changed = store.forgetUnregistered(new Set())
+    expect(changed.map(s => s.sessionId)).toEqual(['s1'])
+    expect(store.get('s1')?.projectId).toBeNull()
+  })
+
+  it('keeps the path it can still prove, from the live process', () => {
+    const store = new SessionStore()
+    store.apply('s1', [entry()], stats, project)
+    store.setLive([live({ cwd: '/Users/dev/proj' })])
+    store.forgetUnregistered(new Set())
+    expect(store.get('s1')?.projectPath).toBe('/Users/dev/proj')
+  })
+
+  it('leaves registered projects alone', () => {
+    const store = new SessionStore()
+    store.apply('s1', [entry()], stats, project)
+    expect(store.forgetUnregistered(new Set(['p1']))).toEqual([])
+    expect(store.get('s1')?.projectId).toBe('p1')
+  })
+
+  it('reports nothing for sessions that never had a project', () => {
+    const store = new SessionStore()
+    store.apply('s1', [entry()], stats, null)
+    expect(store.forgetUnregistered(new Set())).toEqual([])
+  })
+})
+
+describe('SessionStore — spend sink', () => {
+  const project = {
+    id: 'p1', path: '/Users/dev/proj', name: 'proj', escapedDir: '-Users-dev-proj',
+    addedAt: '2026-08-12T00:00:00.000Z',
+  }
+
+  it('hands each new entry of a registered session to the sink with its project id', () => {
+    const store = new SessionStore()
+    const sink = vi.fn()
+    store.onSpendEntry(sink)
+    store.apply('s1', [entry(), entry({ uuid: 'u2' })], stats, project)
+    expect(sink).toHaveBeenCalledTimes(2)
+    expect(sink).toHaveBeenCalledWith('p1', expect.objectContaining({ uuid: 'u2' }))
+  })
+
+  it('does not feed the sink for sessions without a registered project', () => {
+    const store = new SessionStore()
+    const sink = vi.fn()
+    store.onSpendEntry(sink)
+    store.apply('s1', [entry()], stats, null)
+    expect(sink).not.toHaveBeenCalled()
+  })
+
+  it('does not feed the sink again for a duplicate uuid on re-read', () => {
+    const store = new SessionStore()
+    const sink = vi.fn()
+    store.onSpendEntry(sink)
+    store.apply('s1', [entry()], stats, project)
+    store.apply('s1', [entry()], stats, project)
+    expect(sink).toHaveBeenCalledTimes(1)
   })
 })

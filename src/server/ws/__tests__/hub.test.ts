@@ -1,7 +1,13 @@
 import { describe, it, expect, vi } from 'vitest'
 import { EventHub } from '../hub.js'
 
-const emptySnapshot = () => ({ projects: [], sessions: [], tasks: {}, planLimits: null })
+const emptySpend = {
+  todayUsd: null, sevenDayUsd: null, thirtyDayUsd: null,
+  unpricedModels: [], updatedAt: '2026-08-12T10:00:00.000Z',
+}
+const emptySnapshot = () => ({
+  projects: [], sessions: [], tasks: {}, planLimits: null, spend: emptySpend, account: null,
+})
 
 describe('EventHub', () => {
   it('sends a full snapshot carrying the current sequence the moment a client connects', () => {
@@ -11,6 +17,15 @@ describe('EventHub', () => {
     const msg = JSON.parse(send.mock.calls[0]![0] as string)
     expect(msg.type).toBe('snapshot')
     expect(msg.seq).toBe(0)   // the snapshot is the client's baseline, not an event
+  })
+
+  it('carries spend and account in the snapshot', () => {
+    const hub = new EventHub(() => ({ ...emptySnapshot(), account: { email: 'a@b.c' } }))
+    const send = vi.fn()
+    hub.addClient(send)
+    const msg = JSON.parse(send.mock.calls[0]![0] as string)
+    expect(msg.spend).toEqual(emptySpend)
+    expect(msg.account).toEqual({ email: 'a@b.c' })
   })
 
   it('numbers broadcasts monotonically so clients can detect gaps', () => {
