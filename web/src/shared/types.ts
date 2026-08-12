@@ -9,7 +9,15 @@ export type {
   RunHandle,
 } from '@shared/types.js'
 
+export type {
+  SessionUsage,
+  TokenTotals,
+  RateBucket,
+  LiveProcess,
+} from '@shared/types.js'
+
 export type { ToolCall, TranscriptEntry } from '@transcript/types.js'
+export type { PlanLimits, RateLimitWindow } from '@server/live/statusline.js'
 
 export type {
   TaskStatus,

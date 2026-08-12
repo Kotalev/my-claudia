@@ -18,12 +18,14 @@ import { isAllowedHost, isAllowedOrigin } from './origin-guard.js'
 import { Dispatcher } from './dispatcher/index.js'
 import { registerDispatchRoutes } from './routes/dispatch.js'
 import { registerHookRoutes } from './routes/hooks.js'
+import { registerStatuslineRoutes } from './routes/statusline.js'
 import { registerHookInstallRoutes } from './routes/hook-install.js'
 import { SessionsRegistry } from './live/sessions-registry.js'
 import { AgentsPoller, mergeLive } from './live/agents-poller.js'
 
 /** Absolute path to the forwarder, resolved once — a project's settings must not hold a relative path. */
 const HOOK_SCRIPT_PATH = fileURLToPath(new URL('../../scripts/hook-post.sh', import.meta.url))
+const STATUSLINE_SCRIPT_PATH = fileURLToPath(new URL('../../scripts/statusline.sh', import.meta.url))
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -73,6 +75,7 @@ export async function buildServer(
     projects: registry.list(),
     sessions: store.all(),
     tasks: cachedDocs,
+    planLimits: store.planLimits(),
   }))
   watcher.on('session', session => hub.broadcast({ type: 'session.updated', session }))
 
@@ -123,7 +126,13 @@ export async function buildServer(
   registerDispatchRoutes(app, registry, dispatcher, publishTasks)
   registerHookRoutes(app, store, registry, session =>
     hub.broadcast({ type: 'session.updated', session }))
-  registerHookInstallRoutes(app, registry, HOOK_SCRIPT_PATH)
+  registerStatuslineRoutes(
+    app,
+    store,
+    session => hub.broadcast({ type: 'session.updated', session }),
+    () => hub.broadcast({ type: 'plan.updated', planLimits: store.planLimits() }),
+  )
+  registerHookInstallRoutes(app, registry, HOOK_SCRIPT_PATH, STATUSLINE_SCRIPT_PATH)
 
   app.get('/ws', { websocket: true }, socket => {
     const send = (payload: string) => socket.send(payload)

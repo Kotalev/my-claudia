@@ -4,6 +4,7 @@ export interface SnapshotPayload {
   projects: ProjectRecord[]
   sessions: SessionSummary[]
   tasks: Record<string, unknown>
+  planLimits: unknown
 }
 
 export type ServerEvent =
@@ -12,6 +13,7 @@ export type ServerEvent =
   | { type: 'task.updated'; projectId: string; doc: unknown }
   | { type: 'dispatch.output'; runId: string; chunk: string }
   | { type: 'dispatch.updated'; run: unknown }
+  | { type: 'plan.updated'; planLimits: unknown }
   | { type: 'pong' }
 
 type Send = (payload: string) => void

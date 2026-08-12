@@ -1,12 +1,13 @@
 import type { LiveState } from '../shared/useLiveState.js'
 import { ProjectCard } from './ProjectCard.js'
 import { LiveBand } from './LiveBand.js'
+import { PlanLimitsBar } from './PlanLimits.js'
 
 export function Overview(
   { live, onOpenSession, onOpenProject }:
   { live: LiveState; onOpenSession: (id: string) => void; onOpenProject: (id: string) => void },
 ) {
-  const { projects, sessions, connected } = live
+  const { projects, sessions, connected, planLimits } = live
   // Live sessions already have a home in the band above, whether or not their
   // project was ever registered here.
   const unassigned = sessions.filter(s => s.projectId === null && s.live === null)
@@ -19,6 +20,8 @@ export function Overview(
           {connected ? 'live' : 'reconnecting…'}
         </span>
       </header>
+
+      <PlanLimitsBar limits={planLimits} />
 
       <LiveBand sessions={sessions} onOpen={onOpenSession} />
 

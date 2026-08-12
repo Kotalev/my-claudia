@@ -13,6 +13,7 @@ export default defineConfig({
       '@shared': fileURLToPath(new URL('../src/shared', import.meta.url)),
       '@transcript': fileURLToPath(new URL('../src/transcript', import.meta.url)),
       '@tasks': fileURLToPath(new URL('../src/tasks', import.meta.url)),
+      '@server': fileURLToPath(new URL('../src/server', import.meta.url)),
     },
   },
   plugins: [react(), tailwind()],

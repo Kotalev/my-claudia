@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { EventHub } from '../hub.js'
 
-const emptySnapshot = () => ({ projects: [], sessions: [], tasks: {} })
+const emptySnapshot = () => ({ projects: [], sessions: [], tasks: {}, planLimits: null })
 
 describe('EventHub', () => {
   it('sends a full snapshot carrying the current sequence the moment a client connects', () => {

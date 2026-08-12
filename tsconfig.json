@@ -15,7 +15,8 @@
     "paths": {
       "@shared/*": ["./src/shared/*"],
       "@transcript/*": ["./src/transcript/*"],
-      "@tasks/*": ["./src/tasks/*"]
+      "@tasks/*": ["./src/tasks/*"],
+      "@server/*": ["./src/server/*"]
     }
   },
   "include": ["src", "web/src", "test", "vitest.config.ts", "eslint.config.js"]

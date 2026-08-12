@@ -1,6 +1,7 @@
 import type { ParseStats, TranscriptEntry } from '../../transcript/types.js'
 import type { LiveProcess, ProjectRecord, SessionStatus, SessionSummary } from '../../shared/types.js'
 import { UsageAccumulator } from './usage.js'
+import type { PlanLimits, StatuslineReport } from '../live/statusline.js'
 
 /** A session with no activity for this long is no longer "active". */
 export const ACTIVE_WINDOW_MS = 5 * 60 * 1000
@@ -25,6 +26,7 @@ interface SessionState {
    */
   wasLive: boolean
   usage: UsageAccumulator
+  reportedCostUsd: number | null
 }
 
 /**
@@ -48,6 +50,8 @@ function deriveStatus(state: SessionState, fresh: boolean): SessionStatus {
 
 export class SessionStore {
   #sessions = new Map<string, SessionState>()
+  /** Account-wide, not per session: the 5h and 7d plan windows. */
+  #planLimits: PlanLimits | null = null
 
   #state(sessionId: string): SessionState {
     let s = this.#sessions.get(sessionId)
@@ -56,7 +60,7 @@ export class SessionStore {
         entries: [], lastStatus: null, hookActivity: null, historyTruncated: false,
         seen: new Set(), ended: false,
         project: null, versions: new Set(), skippedUnknown: 0,
-        live: null, wasLive: false, usage: new UsageAccumulator(),
+        live: null, wasLive: false, usage: new UsageAccumulator(), reportedCostUsd: null,
       }
       this.#sessions.set(sessionId, s)
     }
@@ -142,6 +146,28 @@ export class SessionStore {
     return changed
   }
 
+  /**
+   * A statusline refresh. Plan limits are account-wide rather than per session,
+   * so the newest report wins for all of them; the cost figure is the session's
+   * own. Returns the affected summary when there is one to broadcast.
+   */
+  applyStatusline(report: StatuslineReport): SessionSummary | undefined {
+    if (report.limits) this.#planLimits = report.limits
+    if (report.sessionId === null) return undefined
+    const state = this.#state(report.sessionId)
+    if (report.reportedCostUsd !== null) state.reportedCostUsd = report.reportedCostUsd
+    // A statusline refresh proves the session is alive right now.
+    state.hookActivity = new Date().toISOString()
+    state.ended = false
+    const summary = this.#summarize(report.sessionId, state)
+    state.lastStatus = summary.status
+    return summary
+  }
+
+  planLimits(): PlanLimits | null {
+    return this.#planLimits
+  }
+
   get(sessionId: string): SessionSummary | undefined {
     const state = this.#sessions.get(sessionId)
     return state ? this.#summarize(sessionId, state) : undefined
@@ -224,6 +250,7 @@ export class SessionStore {
       historyTruncated: state.historyTruncated,
       live: state.live,
       usage: state.usage.snapshot(),
+      reportedCostUsd: state.reportedCostUsd,
     }
   }
 }

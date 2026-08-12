@@ -161,6 +161,102 @@ Rules: IDs are `T-NNN`, sequential, never reused. Checkbox states: `[ ]` todo, `
 - **M4 — Hooks:** hook installer + `/api/hooks` sink; hook events become the primary status source.
 - **v2 ideas:** Agent SDK integration, cost/usage stats, notifications, multi-machine.
 
+## 8. Live processes and telemetry (v2)
+
+Added after v1, once the dashboard's purpose settled on "every running process,
+with the numbers that decide what to do next".
+
+### 8.1 What a process is
+
+A **process** is one live `claude` execution. Three sources, all keyed by
+`sessionId`, so they join without parsing any path:
+
+| Source | Covers | Liveness |
+|---|---|---|
+| `<claude dir>/sessions/<pid>.json` | interactive and SDK processes | `kill(pid,0)` **and** the pid's real start time within 120s of `startedAt` |
+| `claude agents --json`, polled every 30s | background agents — **no pid, no registry file**, invisible to the source above | the CLI's own filtering |
+| `RunHandle` | runs this dashboard dispatched | our own child process |
+
+Verified traps, both live in the code as comments:
+
+- The registry's `procStart` string is **UTC**; `ps -o lstart=` prints **local
+  time** in the same format. Comparing them as text succeeds only on a UTC
+  machine. We never read `procStart` — `ps` is the stable signal.
+- Stale registry files outlive their process (one survived a SIGKILL
+  indefinitely), so a recycled pid would resurrect a dead session without the
+  start-time check.
+- `*.key` files sit beside the JSON, mode 600. They are secrets. Only
+  `<digits>.json` is ever opened.
+
+### 8.2 Status precedence
+
+1. **Not live** (no entry, or pid alive but started at the wrong time) → `done`.
+   This overrides everything; it is the only signal that can conclude a session
+   *finished* rather than merely went quiet.
+2. Registry `waiting`, or a background agent `blocked` → **`waiting`**. The agent
+   is blocked on the user. Nothing else — not transcript growth, not hooks — can
+   distinguish this from idle, and it is the state that most needs a person.
+3. Registry `busy`, a hook inside the active window, or transcript growth → `active`.
+4. Live but quiet → `idle`.
+5. No live entry and never seen live → the v1 time-decay rule.
+
+### 8.3 Project resolution without un-escaping
+
+Escaping is lossy, so it is never reversed (`my-claudia` would become
+`my/claudia`). In order: the live process's own `cwd`, then the newest
+transcript entry's `cwd`, then a registered project, then "path unknown".
+Registration no longer gates visibility — only the TASKS.md features.
+
+### 8.4 Usage accounting
+
+- **Dedup by `message.id`, not `uuid`.** Claude Code writes one transcript line
+  per content block, each repeating the same usage block. Summing lines inflates
+  every total severalfold. Where two lines disagree (6 of ~50k pairs measured),
+  the maximum per field wins.
+- `usage.iterations` is an **array**, not a count. `cache_creation` is an object
+  holding the 5m and 1h buckets, whose sum is `cache_creation_input_tokens` —
+  price the buckets, never both.
+- `<synthetic>` is not a model and API-error turns are not turns; neither is counted.
+- Subagent transcripts (`.../<sessionId>/subagents/agent-*.jsonl`) already fold
+  into the parent session, and are ~21% of usage-bearing lines. They are counted
+  in totals and cost, but never in occupancy: a subagent has a context window of
+  its own.
+
+### 8.5 Context occupancy
+
+`input + cache_read + cache_creation + output` of the last **main-thread**
+assistant turn. It lags by one turn — a large tool result is not counted until
+the next request — and it falls after a compaction, which is correct, not a bug.
+
+An unrecognised model yields **no bar and a raw token count**. A percentage of an
+assumed window is confidently wrong; `claude-fable-5` already ships in real
+transcripts and appears in no third-party table. Never use the statusline's
+`exceeds_200k_tokens`: it is a fixed 200k check regardless of the real window.
+
+### 8.6 Cost policy
+
+There is no cost field anywhere on disk. Cost is derived in `src/shared/pricing.ts`
+from list prices, stamped with `PRICES_VERIFIED_ON`, bucketed per model *and* per
+rate modifier (`speed`, `inference_geo`) so a session that switched models is not
+priced at one rate. An unknown model costs `null`, never `0`.
+
+Two figures are shown, because the user is on a subscription and asked what
+pay-as-you-go would have cost: the estimate **with** the caching that actually
+happened, and the same tokens **without** it. Every figure carries `≈` and a
+persistent qualifier stating that subscription plans bill differently — Anthropic's
+own documentation says the equivalent figures in `/usage` and `total_cost_usd` are
+client-side estimates irrelevant to Max and Pro billing. No cross-project
+"spent today" total is built: that is the number that ends up in an email to
+someone's finance team.
+
+### 8.7 Plan limits
+
+The 5h and 7d windows exist in no file and no public API. The only supported
+source is the statusline hook. It is installed **at project scope**, never in the
+Claude data dir, and it wraps whatever statusline the user already runs, passing
+the payload on and printing that command's output. Verified: 66ms with the
+dashboard down, exit 0 even when the passthrough command is broken.
+
 ## 7. Risks
 
 | Risk | Mitigation |

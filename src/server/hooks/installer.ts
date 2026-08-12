@@ -1,5 +1,6 @@
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { resolveClaudeDir } from '../../shared/config.js'
 
 export const HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'Stop', 'PostToolUse'] as const
 
@@ -8,6 +9,8 @@ export interface InstallResult {
   backupPath: string | null
   installed: string[]
   alreadyPresent: string[]
+  /** True when the statusline forwarder was newly wired in. */
+  statusLine: boolean
 }
 
 interface HookCommand { type: 'command'; command: string; timeout?: number }
@@ -68,7 +71,60 @@ export function mergeHooks(
   return { settings: base, installed, alreadyPresent }
 }
 
-export async function installHooks(projectPath: string, scriptPath: string): Promise<InstallResult> {
+/**
+ * Wires our statusline forwarder in front of whatever statusline the user already
+ * runs, passing that command through as an argument so their prompt is unchanged.
+ * The statusline is the only supported source for plan-limit consumption.
+ *
+ * Installed at project scope, never in the Claude data dir: settings there are
+ * the user's own and this project does not write to them.
+ */
+export function mergeStatusLine(
+  settings: unknown,
+  statuslineScript: string,
+  currentCommand: string | null,
+): { settings: Record<string, unknown>; changed: boolean } {
+  const base = (typeof settings === 'object' && settings !== null && !Array.isArray(settings)
+    ? { ...settings as Record<string, unknown> }
+    : {})
+
+  const existing = typeof base.statusLine === 'object' && base.statusLine !== null
+    ? base.statusLine as Record<string, unknown>
+    : null
+  const existingCommand = typeof existing?.command === 'string' ? existing.command : null
+
+  // Already ours: leave it alone, or its passthrough would be swallowed on a
+  // second install and the user's statusline would disappear.
+  if (existingCommand?.includes(statuslineScript)) return { settings: base, changed: false }
+
+  const passthrough = existingCommand ?? currentCommand
+  const command = passthrough
+    ? `${shellQuote(statuslineScript)} ${shellQuote(passthrough)}`
+    : shellQuote(statuslineScript)
+
+  base.statusLine = { type: 'command', command }
+  return { settings: base, changed: true }
+}
+
+/** The statusline the user runs today, from their own settings. Read only. */
+export async function currentStatusLineCommand(): Promise<string | null> {
+  const raw = await readFile(join(resolveClaudeDir(), 'settings.json'), 'utf8').catch(() => null)
+  if (raw === null) return null
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    const line = (parsed as Record<string, unknown>)?.statusLine
+    const command = (line as Record<string, unknown>)?.command
+    return typeof command === 'string' && command.length > 0 ? command : null
+  } catch {
+    return null
+  }
+}
+
+export async function installHooks(
+  projectPath: string,
+  scriptPath: string,
+  statuslineScript?: string,
+): Promise<InstallResult> {
   const settingsPath = settingsPathFor(projectPath)
   await mkdir(join(projectPath, '.claude'), { recursive: true })
 
@@ -86,9 +142,16 @@ export async function installHooks(projectPath: string, scriptPath: string): Pro
   }
 
   const { settings, installed, alreadyPresent } = mergeHooks(parsed, scriptPath)
-  await writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8')
+  let statusLine = false
+  let merged = settings
+  if (statuslineScript) {
+    const result = mergeStatusLine(settings, statuslineScript, await currentStatusLineCommand())
+    merged = result.settings
+    statusLine = result.changed
+  }
+  await writeFile(settingsPath, JSON.stringify(merged, null, 2) + '\n', 'utf8')
 
-  return { settingsPath, backupPath, installed, alreadyPresent }
+  return { settingsPath, backupPath, installed, alreadyPresent, statusLine }
 }
 
 export async function isInstalled(projectPath: string, scriptPath: string): Promise<boolean> {

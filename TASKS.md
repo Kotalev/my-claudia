@@ -5,8 +5,6 @@
 ### M7 — cost and plan limits
 
 - [ ] **T-029** Capture `total_cost_usd` + `num_turns` onto `RunHandle` instead of only rendering them into a string; label "reported by claude" `#m7` `#p3`
-- [ ] **T-030** Statusline installer with backup + passthrough of the user's existing statusline; surfaces 5h/7d plan limits. Must never break a session `#m7` `#p2`
-- [ ] **T-031** Record in SPEC.md: process definition, liveness precedence, occupancy formula and its one-turn lag, dedup rule, pricing policy `#m5` `#p2`
 
 
 ## In progress
@@ -14,6 +12,8 @@
 
 ## Done
 
+- [x] **T-030** Statusline installer with backup + passthrough of the user's existing statusline; surfaces 5h/7d plan limits. Must never break a session `#m7` `#p2` (2026-08-12)
+- [x] **T-031** Record in SPEC.md: process definition, liveness precedence, occupancy formula and its one-turn lag, dedup rule, pricing policy `#m5` `#p2` (2026-08-12)
 - [x] **T-022** Transcript telemetry fields: `messageId`, `requestId`, `model`, `usage` (5m/1h cache split, thinking, web search), `effort`, `isApiError`. Fixtures: split-response same message.id, `<synthetic>`, legacy usage shape `#m6` `#p1` (2026-08-12)
 - [x] **T-023** Parse `system`/`compact_boundary` + `compactMetadata` as a boundary marker, not a prompt; every subfield optional `#m6` `#p1` (2026-08-12)
 - [x] **T-024** `SessionUsage` aggregation: dedupe by `messageId` taking max-per-field, drop `<synthetic>`/api-error lines, occupancy = last non-sidechain assistant turn, main vs subagent split. Tests: dedup, re-apply idempotence, empty → zeros not NaN `#m6` `#p1` (2026-08-12)
@@ -45,6 +45,8 @@
 
 ## Progress log
 
+- 2026-08-12 13:20 T-031 — SPEC section 8 written: process definition, status precedence, dedup rule, occupancy, cost and plan-limit policy.
+- 2026-08-12 13:15 T-030 — Statusline installed at project scope with passthrough; 66ms with the dashboard down, exit 0 on a broken passthrough.
 - 2026-08-12 13:00 T-026..T-028 — Telemetry live in browser: 222k/1.0M bar, $44.31 PAYG vs $180.77 uncached, subagent split.
 - 2026-08-12 12:57 T-025 — Prices verified first-hand against the pricing doc; Opus 4.8 is $5/$25. Unknown model costs null, never zero.
 - 2026-08-12 12:54 T-024 — Usage aggregation validated on real data: 1864 lines -> 365 messages, dedup by message.id not uuid.

@@ -33,6 +33,11 @@ export interface SessionSummary {
   /** The running process behind this session, when there is one. */
   live: LiveProcess | null
   usage: SessionUsage
+  /**
+   * Claude Code's own cost figure for this session, via the statusline. Still a
+   * client-side estimate by Anthropic's own account, but it is theirs, not ours.
+   */
+  reportedCostUsd: number | null
 }
 
 export type RunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'

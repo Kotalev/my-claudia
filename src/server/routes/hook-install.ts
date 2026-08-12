@@ -6,6 +6,7 @@ export function registerHookInstallRoutes(
   app: FastifyInstance,
   registry: ProjectRegistry,
   scriptPath: string,
+  statuslineScript: string,
 ): void {
   app.get<{ Params: { id: string } }>('/api/projects/:id/hooks', async (req, reply) => {
     const project = registry.byId(req.params.id)
@@ -17,7 +18,7 @@ export function registerHookInstallRoutes(
     const project = registry.byId(req.params.id)
     if (!project) return reply.code(404).send({ error: 'unknown project' })
     try {
-      return { result: await installHooks(project.path, scriptPath) }
+      return { result: await installHooks(project.path, scriptPath, statuslineScript) }
     } catch (err) {
       return reply.code(500).send({ error: (err as Error).message })
     }

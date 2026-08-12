@@ -56,7 +56,10 @@ function Cost({ usage }: { usage: SessionUsage }) {
   )
 }
 
-export function TelemetryPanel({ usage, truncated }: { usage: SessionUsage; truncated: boolean }) {
+export function TelemetryPanel(
+  { usage, truncated, reportedCostUsd }:
+  { usage: SessionUsage; truncated: boolean; reportedCostUsd: number | null },
+) {
   return (
     <section
       data-testid="telemetry"
@@ -81,6 +84,11 @@ export function TelemetryPanel({ usage, truncated }: { usage: SessionUsage; trun
       <div className="space-y-2">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Cost</h2>
         <Cost usage={usage} />
+        {reportedCostUsd !== null && (
+          <p className="text-xs text-neutral-500">
+            {money(reportedCostUsd)} reported by Claude Code itself
+          </p>
+        )}
       </div>
 
       <div className="md:col-span-2">

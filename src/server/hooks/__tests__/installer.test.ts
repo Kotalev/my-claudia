@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { mkdtemp, mkdir, readFile, writeFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { mergeHooks, installHooks, isInstalled, HOOK_EVENTS } from '../installer.js'
+import { mergeHooks, installHooks, isInstalled, HOOK_EVENTS, mergeStatusLine } from '../installer.js'
 
 const SCRIPT = '/opt/mc/scripts/hook-post.sh'
 let dir: string
@@ -111,5 +111,56 @@ describe('shell quoting', () => {
     const { settings } = mergeHooks({}, nasty)
     const start = (settings.hooks as Record<string, { hooks: { command: string }[] }[]>).SessionStart!
     expect(start[0]!.hooks[0]!.command).toBe(`'/tmp/it'\\''s/hook-post.sh'`)
+  })
+})
+
+describe('mergeStatusLine', () => {
+  const SCRIPT = '/opt/mission control/scripts/statusline.sh'
+
+  it('wires our forwarder in front of the user existing statusline', () => {
+    const { settings, changed } = mergeStatusLine({}, SCRIPT, 'bash ~/.claude/statusline.sh')
+    expect(changed).toBe(true)
+    const line = settings.statusLine as { type: string; command: string }
+    expect(line.type).toBe('command')
+    // Their command is preserved and handed on, quoted, as our argument.
+    expect(line.command).toBe(`'${SCRIPT}' 'bash ~/.claude/statusline.sh'`)
+  })
+
+  it('prefers a statusline already set on the project over the global one', () => {
+    const { settings } = mergeStatusLine(
+      { statusLine: { type: 'command', command: 'project-line.sh' } },
+      SCRIPT,
+      'global-line.sh',
+    )
+    expect((settings.statusLine as { command: string }).command).toContain("'project-line.sh'")
+    expect((settings.statusLine as { command: string }).command).not.toContain('global-line.sh')
+  })
+
+  it('installs alone when the user has no statusline at all', () => {
+    const { settings } = mergeStatusLine({}, SCRIPT, null)
+    expect((settings.statusLine as { command: string }).command).toBe(`'${SCRIPT}'`)
+  })
+
+  it('is idempotent: a second install must not swallow the passthrough', () => {
+    const first = mergeStatusLine({}, SCRIPT, 'bash ~/.claude/statusline.sh')
+    const second = mergeStatusLine(first.settings, SCRIPT, 'bash ~/.claude/statusline.sh')
+    expect(second.changed).toBe(false)
+    expect(second.settings.statusLine).toEqual(first.settings.statusLine)
+  })
+
+  it('leaves the rest of the settings untouched', () => {
+    const { settings } = mergeStatusLine({ permissions: { allow: ['Read'] } }, SCRIPT, null)
+    expect(settings.permissions).toEqual({ allow: ['Read'] })
+  })
+
+  it('tolerates settings that are not an object', () => {
+    expect(mergeStatusLine(null, SCRIPT, null).changed).toBe(true)
+    expect(mergeStatusLine('nonsense', SCRIPT, null).changed).toBe(true)
+    expect(mergeStatusLine([1], SCRIPT, null).changed).toBe(true)
+  })
+
+  it('tolerates a statusLine that is not shaped as expected', () => {
+    const { settings } = mergeStatusLine({ statusLine: 'just-a-string' }, SCRIPT, 'global.sh')
+    expect((settings.statusLine as { command: string }).command).toContain("'global.sh'")
   })
 })

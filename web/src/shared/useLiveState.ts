@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ProjectRecord, RunHandle, SessionSummary, TasksDoc } from './types.js'
+import type { PlanLimits } from '@server/live/statusline.js'
 
 export interface LiveState {
   projects: ProjectRecord[]
   sessions: SessionSummary[]
   tasks: Record<string, TasksDoc>
+  planLimits: PlanLimits | null
   runs: RunHandle[]
   runOutput: Record<string, string>
   connected: boolean
@@ -17,6 +19,7 @@ export function useLiveState(): LiveState {
   const [projects, setProjects] = useState<ProjectRecord[]>([])
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [tasks, setTasks] = useState<Record<string, TasksDoc>>({})
+  const [planLimits, setPlanLimits] = useState<PlanLimits | null>(null)
   const [runs, setRuns] = useState<RunHandle[]>([])
   const [runOutput, setRunOutput] = useState<Record<string, string>>({})
   const [connected, setConnected] = useState(false)
@@ -58,6 +61,7 @@ export function useLiveState(): LiveState {
           setProjects(msg.projects)
           setSessions(msg.sessions)
           setTasks(msg.tasks ?? {})
+          setPlanLimits(msg.planLimits ?? null)
         } else if (msg.type === 'dispatch.updated') {
           setRuns(prev => [msg.run, ...prev.filter(r => r.runId !== msg.run.runId)])
         } else if (msg.type === 'dispatch.output') {
@@ -65,6 +69,8 @@ export function useLiveState(): LiveState {
             const next = (prev[msg.runId] ?? '') + msg.chunk
             return { ...prev, [msg.runId]: next.slice(-MAX_OUTPUT_CHARS) }
           })
+        } else if (msg.type === 'plan.updated') {
+          setPlanLimits(msg.planLimits ?? null)
         } else if (msg.type === 'task.updated') {
           setTasks(prev => ({ ...prev, [msg.projectId]: msg.doc }))
         } else if (msg.type === 'session.updated') {
@@ -98,5 +104,5 @@ export function useLiveState(): LiveState {
     }
   }, [])
 
-  return { projects, sessions, tasks, runs, runOutput, connected }
+  return { projects, sessions, tasks, planLimits, runs, runOutput, connected }
 }
