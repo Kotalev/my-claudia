@@ -11,6 +11,24 @@ Local web dashboard for monitoring Claude Code sessions across projects and mana
 - If you discover new work, add it as a new task with the next sequential `T-NNN` id — never reuse ids, never renumber.
 - Do not put progress history in this file (CLAUDE.md); it belongs in TASKS.md.
 
+## Domain terms
+
+Used precisely throughout the code — if you mean one of these, use the word.
+
+| Term | Meaning |
+|---|---|
+| **session** | One Claude Code conversation, identified by a UUID. Backed by one JSONL transcript file. |
+| **transcript** | The append-only JSONL file at `<claude dir>/projects/<escaped dir>/<session>.jsonl`. Internal format, changes between releases. |
+| **entry** | One parsed conversation line: role, text, tool calls. Bookkeeping lines are not entries. |
+| **escaped dir** | A project path with every non-alphanumeric character replaced by `-`. Lossy, so not reversible — match by re-escaping a registered path. |
+| **tail state** | Per-file `{byteOffset, partial}`. chokidar events are only a poke; growth is decided by comparing size against the offset. |
+| **backfill** | The bounded initial read of a transcript we have never seen. Old or huge files are joined near their end, which sets `historyTruncated`. |
+| **drift** | A transcript line whose `type` we have never seen. Counted and surfaced, never fatal. |
+| **snapshot** | Full state pushed to a client on connect. Carries the current sequence rather than advancing it. |
+| **delta** | An incremental event carrying the next sequence number. A gap makes the client ask for a fresh snapshot. |
+| **run** | One dispatched headless `claude -p` process, tracked by a `RunHandle`. |
+| **hook sink** | `POST /api/hooks`, where the forwarder delivers hook events. Always answers 200, even to garbage. |
+
 ## Stack & conventions
 
 - Node 20+, TypeScript strict mode. Fastify for API + WebSocket, chokidar for file watching, React + Vite + Tailwind for the frontend, Vitest for tests. Single process, binds to `127.0.0.1:4517` only.
