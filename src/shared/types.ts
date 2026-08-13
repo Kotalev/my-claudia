@@ -100,6 +100,26 @@ export interface DispatchInput {
 }
 
 /**
+ * A run that was alive when a previous server process died. Live runs are
+ * mirrored to a JSON file as they change (a Ctrl+C never runs a shutdown
+ * hook); whatever the file still holds at startup is offered for resume.
+ */
+export interface InterruptedRun {
+  runId: string
+  projectId: string
+  taskId: string | null
+  kind: RunKind
+  /** The prompt that started the run, so it can be re-dispatched when no session id was ever seen. */
+  prompt: string
+  /** Null when the run died before its init event named the session — resume is impossible then. */
+  sessionId: string | null
+  status: RunStatus
+  startedAt: string
+  /** Last time the mirror saw the run change. */
+  updatedAt: string
+}
+
+/**
  * A dispatch that could not start because an in-place run already holds its
  * project. In-memory only: unstarted work does not need to survive a restart.
  */

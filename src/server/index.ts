@@ -18,6 +18,8 @@ import { isAllowedHost, isAllowedOrigin } from './origin-guard.js'
 import { extractToken, loadOrCreateToken, requiresToken, tokenMatches } from './auth.js'
 import { Dispatcher } from './dispatcher/index.js'
 import { DispatchQueue } from './dispatcher/queue.js'
+import { InterruptedRunStore } from './dispatcher/interrupted.js'
+import { registerInterruptedRoutes } from './routes/interrupted.js'
 import { pruneStaleWorktrees } from './dispatcher/worktree.js'
 import { registerDispatchRoutes } from './routes/dispatch.js'
 import { registerHookRoutes } from './routes/hooks.js'
@@ -68,7 +70,7 @@ export async function buildServer(
   tokenPath = join(process.cwd(), '.auth-token'),
   // Overridable so a test server can never prune the real .worktrees or open
   // the real history db of a dashboard running beside the test run.
-  paths: { worktreesRoot?: string; historyDbPath?: string } = {},
+  paths: { worktreesRoot?: string; historyDbPath?: string; interruptedPath?: string } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: 'info' },
@@ -86,6 +88,11 @@ export async function buildServer(
   const worktreesRoot = paths.worktreesRoot ?? join(process.cwd(), '.worktrees')
   const dispatcher = new Dispatcher({ worktreesRoot })
   const dispatchQueue = new DispatchQueue(dispatcher)
+
+  // Live runs are mirrored to disk as they change; whatever the mirror still
+  // holds now was abandoned by a previous process and is offered for resume.
+  const interrupted = new InterruptedRunStore(paths.interruptedPath ?? join(process.cwd(), 'interrupted-runs.json'))
+  await interrupted.load()
 
   // Claude Code's own live-session registry. Started before the hub so the first
   // snapshot already carries the running processes rather than an empty band.
@@ -164,6 +171,7 @@ export async function buildServer(
     schedules: scheduler.list(),
     queue: dispatchQueue.list(),
     reviews: cachedReviews,
+    interrupted: interrupted.list(),
   }))
   const refreshReviews = (): void => {
     void computeReviews().then(reviews => {
@@ -219,6 +227,13 @@ export async function buildServer(
     hub.broadcast({ type: 'dispatch.output', runId, chunk }))
   dispatcher.on('update', (run: RunHandle) => {
     hub.broadcast({ type: 'dispatch.updated', run })
+    // Keep the on-disk mirror current: alive → upsert, ended → delete. What
+    // the file holds when this process dies is the next process's offer list.
+    if (run.endedAt === null) {
+      interrupted.record(run, dispatcher.originalInput(run.runId)?.prompt ?? '')
+    } else {
+      interrupted.drop(run.runId)
+    }
     // A run ending, merging or discarding all re-emit the ended handle — each
     // changes what is pending review.
     if (run.endedAt !== null) refreshReviews()
@@ -291,6 +306,8 @@ export async function buildServer(
     stoppedLoops: () => loops.stopped(),
   })
   registerTemplateRoutes(app, historyDb)
+  registerInterruptedRoutes(app, registry, interrupted, dispatchQueue, () =>
+    hub.broadcast({ type: 'interrupted.updated', interrupted: interrupted.list() }))
   registerScheduleRoutes(app, registry, scheduler, loops)
   scheduler.on('changed', (schedules: ScheduleJob[]) =>
     hub.broadcast({ type: 'schedule.updated', schedules }))
@@ -465,6 +482,7 @@ export async function buildServer(
     agentsPoller.stop()
     scheduler.stop()
     historyDb.close()
+    await interrupted.flush()
     await Promise.all([watcher.stop(), tasksWatcher.stop(), sessionsRegistry.stop()])
   })
 

@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../shared/api.js'
 import { ArrowLeft, MessagesSquare } from 'lucide-react'
-import type { PendingReview, ProjectRecord, QueuedDispatch, RunHandle, ScheduleJob, SessionSummary, Task, TasksDoc } from '../shared/types.js'
+import type { InterruptedRun, PendingReview, ProjectRecord, QueuedDispatch, RunHandle, ScheduleJob, SessionSummary, Task, TasksDoc } from '../shared/types.js'
 import { NewTaskForm } from './NewTaskForm.js'
 import { PromptRunForm } from './PromptRunForm.js'
 import { NEXT_STATUS, TaskBoard, type ScheduleOptions } from './TaskBoard.js'
 import { SessionRow } from '../overview/SessionRow.js'
 import { RunPanel } from './RunPanel.js'
 import { PendingReviews } from './PendingReviews.js'
+import { InterruptedRuns } from './InterruptedRuns.js'
 import { HooksBadge } from './HooksBadge.js'
 import { Page } from '../shared/Page.js'
 import { ErrorLine } from '../shared/ErrorLine.js'
@@ -31,7 +32,7 @@ function queuedLabel(q: QueuedDispatch): string {
 }
 
 export function ProjectView(
-  { project, sessions, doc, runs, runOutput, schedules, queue, reviews, onBack, onOpenSession }:
+  { project, sessions, doc, runs, runOutput, schedules, queue, reviews, interrupted, onBack, onOpenSession }:
   {
     project: ProjectRecord
     sessions: SessionSummary[]
@@ -41,6 +42,7 @@ export function ProjectView(
     schedules: ScheduleJob[]
     queue: QueuedDispatch[]
     reviews: PendingReview[]
+    interrupted: InterruptedRun[]
     onBack: () => void
     onOpenSession: (id: string) => void
   },
@@ -191,6 +193,7 @@ export function ProjectView(
           {error && <ErrorLine testId="dispatch-error" className="rounded-lg border border-red-900 bg-red-950/40 px-3 py-2">{error}</ErrorLine>}
           {loadError && <ErrorLine testId="tasks-error" className="rounded-lg border border-red-900 bg-red-950/40 px-3 py-2">{loadError} — the board below may be incomplete.</ErrorLine>}
 
+          <InterruptedRuns interrupted={interrupted} />
           {activeRuns.map(run => (
             <RunPanel key={run.runId} run={run} output={runOutput[run.runId] ?? ''} onCancel={cancelRun} onRetry={retryRun} autoContinueAt={autoContinueAt(run)} />
           ))}

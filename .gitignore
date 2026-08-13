@@ -10,3 +10,5 @@ projects.json
 .claude/settings*.backup-*
 .DS_Store
 mission-control.db*
+interrupted-runs.json
+.idea

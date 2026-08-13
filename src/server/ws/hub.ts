@@ -1,4 +1,4 @@
-import type { AccountInfo, PendingReview, PermissionRequestInfo, ProjectRecord, QueuedDispatch, RunHandle, ScheduleJob, SessionSummary, SpendSummary } from '../../shared/types.js'
+import type { AccountInfo, InterruptedRun, PendingReview, PermissionRequestInfo, ProjectRecord, QueuedDispatch, RunHandle, ScheduleJob, SessionSummary, SpendSummary } from '../../shared/types.js'
 
 export interface SnapshotPayload {
   projects: ProjectRecord[]
@@ -12,6 +12,7 @@ export interface SnapshotPayload {
   schedules: ScheduleJob[]
   queue: QueuedDispatch[]
   reviews: PendingReview[]
+  interrupted: InterruptedRun[]
 }
 
 export type ServerEvent =
@@ -28,6 +29,7 @@ export type ServerEvent =
   | { type: 'schedule.updated'; schedules: ScheduleJob[] }
   | { type: 'queue.updated'; queue: QueuedDispatch[] }
   | { type: 'review.updated'; reviews: PendingReview[] }
+  | { type: 'interrupted.updated'; interrupted: InterruptedRun[] }
   | { type: 'pong' }
 
 type Send = (payload: string) => void

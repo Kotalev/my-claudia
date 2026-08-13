@@ -3,6 +3,7 @@ import { Play } from 'lucide-react'
 import { apiFetch } from '../shared/api.js'
 import { FOCUS_RING } from '../shared/focus.js'
 import { ErrorLine } from '../shared/ErrorLine.js'
+import { Modal } from '../shared/Modal.js'
 import type { PromptTemplate } from '../shared/types.js'
 
 /**
@@ -17,6 +18,8 @@ export function PromptRunForm({ onDispatch }: { onDispatch: (text: string) => Pr
   const [error, setError] = useState<string | null>(null)
   const [templates, setTemplates] = useState<PromptTemplate[]>([])
   const [selectedId, setSelectedId] = useState('')
+  const [naming, setNaming] = useState(false)
+  const [templateName, setTemplateName] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -50,8 +53,10 @@ export function PromptRunForm({ onDispatch }: { onDispatch: (text: string) => Pr
   }
 
   const saveTemplate = async (): Promise<void> => {
-    const name = window.prompt('Template name')?.trim()
+    const name = templateName.trim()
     if (!name) return
+    setNaming(false)
+    setTemplateName('')
     setError(null)
     const res = await apiFetch('/api/templates', {
       method: 'POST',
@@ -82,6 +87,7 @@ export function PromptRunForm({ onDispatch }: { onDispatch: (text: string) => Pr
   }
 
   return (
+    <>
     <form onSubmit={submit} className="space-y-1">
       <label htmlFor="prompt-run" className="sr-only">New run from a prompt</label>
       <textarea
@@ -118,7 +124,7 @@ export function PromptRunForm({ onDispatch }: { onDispatch: (text: string) => Pr
         <button
           type="button"
           data-testid="prompt-template-save"
-          onClick={() => void saveTemplate()}
+          onClick={() => setNaming(true)}
           disabled={text.trim().length === 0}
           className={`rounded-[5px] border border-neutral-700 px-2 py-1 font-mono text-[11px] text-faint hover:text-neutral-200 disabled:opacity-40 ${FOCUS_RING}`}
         >
@@ -140,5 +146,43 @@ export function PromptRunForm({ onDispatch }: { onDispatch: (text: string) => Pr
       </div>
       {error && <ErrorLine testId="prompt-run-error" className="text-xs">{error}</ErrorLine>}
     </form>
+    {/* Outside the run <form>: nesting forms is invalid HTML, and the modal
+        carries its own form so Enter saves. */}
+    {naming && (
+      <Modal title="Save as template" onClose={() => { setNaming(false); setTemplateName('') }}>
+        <form
+          onSubmit={e => { e.preventDefault(); void saveTemplate() }}
+          className="space-y-3"
+        >
+          <label htmlFor="template-name" className="sr-only">Template name</label>
+          <input
+            id="template-name"
+            data-testid="template-name-input"
+            autoFocus
+            value={templateName}
+            onChange={e => setTemplateName(e.target.value)}
+            placeholder="Template name…"
+            className={`w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm ${FOCUS_RING} focus:border-info`}
+          />
+          <div className="flex justify-end gap-2.5">
+            <button
+              type="button"
+              onClick={() => { setNaming(false); setTemplateName('') }}
+              className={`rounded-[5px] border border-neutral-700 px-3 py-1.5 font-mono text-[11px] text-faint hover:text-neutral-200 ${FOCUS_RING}`}
+            >
+              cancel
+            </button>
+            <button
+              data-testid="template-name-save"
+              disabled={templateName.trim().length === 0}
+              className={`rounded-[5px] border border-neutral-700 bg-neutral-875 px-3 py-1.5 font-mono text-[11px] text-neutral-200 hover:bg-neutral-800 disabled:opacity-40 ${FOCUS_RING}`}
+            >
+              save
+            </button>
+          </div>
+        </form>
+      </Modal>
+    )}
+    </>
   )
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AccountInfo, PendingReview, PermissionRequestInfo, ProjectRecord, QueuedDispatch, RunHandle, ScheduleJob, SessionStatus, SessionSummary, SpendSummary, TasksDoc } from './types.js'
+import type { AccountInfo, InterruptedRun, PendingReview, PermissionRequestInfo, ProjectRecord, QueuedDispatch, RunHandle, ScheduleJob, SessionStatus, SessionSummary, SpendSummary, TasksDoc } from './types.js'
 import type { PlanLimits } from '@server/live/statusline.js'
 import { dismiss, fire, isEnabled, permission, reconcile, shouldNotify } from './notifications.js'
 import { wsUrl } from './api.js'
@@ -17,6 +17,7 @@ export interface LiveState {
   schedules: ScheduleJob[]
   queue: QueuedDispatch[]
   reviews: PendingReview[]
+  interrupted: InterruptedRun[]
   connected: boolean
 }
 
@@ -42,6 +43,7 @@ export function useLiveState({ focusedSessionId, onOpenSession }: LiveStateOptio
   const [schedules, setSchedules] = useState<ScheduleJob[]>([])
   const [queue, setQueue] = useState<QueuedDispatch[]>([])
   const [reviews, setReviews] = useState<PendingReview[]>([])
+  const [interrupted, setInterrupted] = useState<InterruptedRun[]>([])
   const [connected, setConnected] = useState(false)
   const lastSeq = useRef(0)
   const seeded = useRef(false)
@@ -108,6 +110,9 @@ export function useLiveState({ focusedSessionId, onOpenSession }: LiveStateOptio
           setSchedules(msg.schedules ?? [])
           setQueue(msg.queue ?? [])
           setReviews(msg.reviews ?? [])
+          setInterrupted(msg.interrupted ?? [])
+        } else if (msg.type === 'interrupted.updated') {
+          setInterrupted(msg.interrupted ?? [])
         } else if (msg.type === 'review.updated') {
           setReviews(msg.reviews ?? [])
         } else if (msg.type === 'schedule.updated') {
@@ -190,5 +195,5 @@ export function useLiveState({ focusedSessionId, onOpenSession }: LiveStateOptio
     }
   }, [])
 
-  return { projects, sessions, tasks, planLimits, spend, account, runs, runOutput, permissions, schedules, queue, reviews, connected }
+  return { projects, sessions, tasks, planLimits, spend, account, runs, runOutput, permissions, schedules, queue, reviews, interrupted, connected }
 }

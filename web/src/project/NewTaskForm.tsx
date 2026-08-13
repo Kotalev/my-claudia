@@ -28,19 +28,28 @@ export function NewTaskForm({ onCreate }: { onCreate: (title: string, tags: stri
 
   return (
     <div className="space-y-1">
-      <form onSubmit={submit} className="flex gap-2">
+      <form onSubmit={submit} className="flex items-start gap-2">
         <label htmlFor="new-task" className="sr-only">New task</label>
-        <input
+        <textarea
           id="new-task"
           data-testid="new-task-input"
           aria-describedby="new-task-hint"
+          rows={2}
           value={title}
           onChange={e => setTitle(e.target.value)}
+          // Enter submits like the old <input>; Shift+Enter makes a newline.
+          // Any newlines that survive are collapsed by the \s+ replace on submit.
+          onKeyDown={e => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              e.currentTarget.form?.requestSubmit()
+            }
+          }}
           placeholder="New task… (use #tags)"
           // `outline-none` used to be here with only a neutral-800 → 600 border
           // shift as the replacement: 1.23:1 against the field, so a keyboard
           // user could not see where they were.
-          className={`min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-2.5 text-sm ${FOCUS_RING} focus:border-info`}
+          className={`min-w-0 flex-1 resize-y rounded-lg border border-neutral-800 bg-neutral-900 px-3.5 py-2.5 text-sm ${FOCUS_RING} focus:border-info`}
         />
         <button
           data-testid="new-task-submit"

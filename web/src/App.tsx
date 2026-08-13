@@ -62,6 +62,7 @@ export function App() {
         schedules={live.schedules.filter(s => s.projectId === project.id)}
         queue={live.queue.filter(q => q.projectId === project.id)}
         reviews={live.reviews.filter(r => r.projectId === project.id)}
+        interrupted={live.interrupted.filter(r => r.projectId === project.id)}
         onBack={() => navigate({ projectId: null, sessionId: null })}
         onOpenSession={id => navigate({ ...route, sessionId: id })}
       />

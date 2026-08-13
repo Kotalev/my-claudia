@@ -13,6 +13,7 @@ const emptySnapshot = () => ({
   schedules: [],
   queue: [],
   reviews: [],
+  interrupted: [],
 })
 
 describe('EventHub', () => {

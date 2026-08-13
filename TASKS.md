@@ -4,8 +4,11 @@
 
 ## In progress
 
+- [~] **T-074** Искам да прегледаш за dead code който имаме по проекта. Потърси функии/променливи/файлове които не се използват никъде. Увери се че вече не се използват и ги премахни. След това тествай дали всичко е наред и работи `#deadcode`
+
 ## Done
 
+- [x] **T-073** Interrupted runs survive a restart: live runs mirrored to interrupted-runs.json; on startup leftovers offered for one-click resume/dismiss in the UI (2026-08-13)
 - [x] **T-059** Finished sessions show WORKING for ~5 min: registry `idle` must beat freshness in `deriveStatus`; keep the fresh fallback only for status-less (sdk-cli) processes `#p1` (2026-08-13)
 - [x] **T-066** Loop schedules: `repeatEveryMs` on a schedule; on run finish the job replicates itself; stop conditions (max iterations, N consecutive failures); iterations chained under a `loopId` in history `#m15` `#p1` (2026-08-13)
 - [x] **T-067** Watchdog: flag a run that exceeds a max duration or emits no output for N minutes; notification + visible state on the run panel `#m15` `#p1` (2026-08-13)
@@ -14,21 +17,18 @@
 - [x] **T-070** Digest view: what ran since a cutoff (overnight) — outcomes, cost, pending reviews; linked from Overview `#m15` `#p2` (2026-08-13)
 - [x] **T-071** Rate-limit-aware loops: delay a loop iteration when the 5h window is near its limit or a rate_limit_event says blocked `#m15` `#p2` (2026-08-13)
 - [x] **T-072** History search: LIKE search over run prompts/output tails in the History view (FTS5 skipped deliberately — availability in node:sqlite uncertain, table small) `#m15` `#p2` (2026-08-13)
-
 - [x] **T-060** Steering: send follow-up messages to a live dispatched run over stream-json stdin; input box on the run panel `#m14` `#p1` (2026-08-13)
 - [x] **T-061** Start/resume sessions from the dashboard: new prompt against a project, resume an existing session headlessly `#m14` `#p1` (2026-08-13)
 - [x] **T-062** Remote access: opt-in `MC_HOST` bind (token stays mandatory), responsive mobile layout, PWA manifest `#m14` `#p2` (2026-08-13)
 - [x] **T-063** SQLite history: persist runs/spend to `mission-control.db` via `node:sqlite`; history view with charts `#m14` `#p2` (2026-08-13)
 - [x] **T-064** Auto-continue on rate limit + scheduled dispatch (run a task at a set time) `#m14` `#p2` (2026-08-13)
 - [x] **T-065** Dispatch queue with retry for failed runs + prompt templates on the dispatch form `#m14` `#p2` (2026-08-13)
-
 - [x] **T-053** Context-pressure warning: occupancy amber ≥85% + "compaction soon" flag on Live rows `#m13` `#p2` (2026-08-13)
 - [x] **T-054** In-session search: filter the open transcript by text and by tool on the Session screen `#m13` `#p2` (2026-08-13)
 - [x] **T-055** Answer permission prompts from the dashboard: PermissionRequest hook holds the decision, timeout falls back to the terminal `#m13` `#p1` (2026-08-13)
 - [x] **T-056** Outbound alert webhook: single POST when a session waits > N min or the 5h window nears its limit `#m13` `#p2` (2026-08-13)
 - [x] **T-057** npx distribution: build + bin entry, prod server serves the built frontend `#m13` `#p2` (2026-08-13)
 - [x] **T-058** Worktree-isolated dispatch with a diff review before merge `#m13` `#p1` (2026-08-13)
-
 - [x] **T-046** Waiting rows show "waiting Xm" from `statusUpdatedAt`, ticking live `#m12` `#p1` (2026-08-12)
 - [x] **T-047** Plan band: live "resets in Xh Ym" countdown from the statusline 5h/7d windows `#m12` `#p1` (2026-08-12)
 - [x] **T-048** Opt-in audio alert when a session enters `waiting`, alongside the Web Notification `#m12` `#p2` (2026-08-12)
@@ -36,9 +36,7 @@
 - [x] **T-050** Spend: weekly/monthly rollups + 5h-block burn rate with projected limit-hit time `#m12` `#p2` (2026-08-12)
 - [x] **T-051** JSON export: `GET /api/export` for sessions summary + spend ledger `#m12` `#p3` (2026-08-12)
 - [x] **T-052** In-memory search across parsed session entries, search box on Overview `#m12` `#p2` (2026-08-12)
-
 - [x] **T-045** Implement the Mission Control Screens redesign (claude.ai/design): IBM Plex type, state/motion token layer (orbit·pulse·shimmer·beacon·caret), instrument PLAN+SPEND band, live rows with motion, task board with compact DONE, transcript hierarchy with chapters, activity blocks and collapsed bookkeeping `#m11` `#p1` (2026-08-12)
-
 - [x] **T-039** Spend band: 30-day daily ledger over registered projects' transcripts, today/7d/30d cost in the header band, live via `spend.updated`; account email in the header. Design: docs/superpowers/specs/2026-08-12-spend-tracking-design.md `#m10` `#p1` (2026-08-12)
 - [x] **T-044** Live rows show the session's own name (`/rename`) before the prompt; backend already carried it, the UI never rendered it `#m10` `#p3` (2026-08-12)
 - [x] **T-040** Installer guard: refuse to write settings when the target is the Claude data dir or `$HOME` (audit S1) `#p1` (2026-08-12)
@@ -86,6 +84,9 @@
 
 ## Progress log
 
+- 2026-08-13 13:35 T-073 — done, browser-verified on prod build: kill mid-run → restart → INTERRUPTED block → resume continued the SAME session; 727 tests
+- 2026-08-13 13:20 T-073 — eager mirror is the design, not shutdown hooks: Ctrl+C on npm run dev kills the tree, onClose never fires
+- 2026-08-13 13:11 T-073 — started: mirror live runs to interrupted-runs.json eagerly (Ctrl+C never runs onClose), offer leftovers on startup
 - 2026-08-13 12:37 T-059,T-066..T-072 — all eight done, browser-verified on prod build: loop fired/replicated/stopped, review restart path, inbox, digest, search; 763 tests
 - 2026-08-13 12:33 T-069 — merge now commits a worktree's pending changes first: runs are not required to commit, the diff showed them, silent loss was possible
 - 2026-08-13 12:25 — npm test used to prune the REAL .worktrees via buildServer's cwd defaults (killed a live run's worktree); buildServer paths now injectable, tests use tmp roots
@@ -98,7 +99,6 @@
 - 2026-08-13 10:35 T-061..T-065 — wave 2 landed sequentially; --resume + stream-json stdin probe-verified (same session id, context kept)
 - 2026-08-13 10:05 T-060/062/063 — wave 1 landed + wiring applied; 605 tests, lint clean under Node 24; engines >=22.5
 - 2026-08-13 09:55 T-060 — verified live: stream-json stdin keeps claude alive across turns; rate_limit_event carries resetsAt
-
 - 2026-08-13 09:48 T-060..T-065 — round 3 queued (steering, resume, remote, sqlite history, auto-continue, queue+templates); CLI facts being verified
 - 2026-08-13 06:45 T-053..T-058 — all six done, browser-verified against the prod build (npx path); 554 tests, lint clean
 - 2026-08-13 06:42 T-058 — review diff missed the run's own commits (diff HEAD); base commit now recorded and diffed against
@@ -112,16 +112,12 @@
 - 2026-08-12 22:50 T-046..T-052 — all seven implemented via 6 workflow agents, 474 tests green; browser verification in progress
 - 2026-08-12 22:37 T-046..T-052 — seven competitor-inspired features queued from the 2026-08-12 competitive analysis; starting workflow implementation
 - 2026-08-12 17:35 T-045 — Type switched to Archivo + Martian Mono (both SIL OFL, free) after a 6-variant comparison in docs/design/font-variants.html; browser-verified.
-
 - 2026-08-12 16:55 T-045 — Contrast pass: faint #8b9195 (~6:1), dim #7b8187 (~4.9:1); mock's #4c5457 was 2.6:1. Dropped opacity-70 on done rows/column — tokens carry the recede.
-
 - 2026-08-12 16:50 T-045 — Chapters rail joined the reading measure: it lined up on the viewport edge beside a centred column on wide screens.
-
 - 2026-08-12 16:45 T-045 — Done, browser-verified on all 3 screens with live data; 415 tests + lint clean. Motion is CSS-only, off under prefers-reduced-motion.
 - 2026-08-12 16:43 T-045 — Session view: chapters rail (isHumanPrompt is the chapter predicate), activity blocks per tool stretch, bookkeeping folded into counted dividers, ↑/↓ chapter jumps, streaming caret on the live tail.
 - 2026-08-12 16:35 T-045 — Token layer remaps the stock neutral/accent ramps in @theme, so untouched classes still land on the new palette; semantic tokens (work/alarm/info/danger) for new code.
 - 2026-08-12 16:29 T-045 — Started: design imported from claude.ai/design (screens + brief); plan is token layer first, then shared, overview, project, session.
-
 - 2026-08-12 17:30 T-039 — Done: SpendLedger (31d daily buckets, scan+live dedup by messageId, epoch-guarded scan cancel), spend.updated, SPEND band + account email. 407 tests, lint clean, browser-verified.
 - 2026-08-12 17:25 T-039 — Review fixes: null window renders n/a not $0.00; unpriced-only spend keeps the band visible.
 - 2026-08-12 17:15 T-044 — kind chip (cli/bg) and short session id dropped from Live rows at user request; the session screen keeps the id.

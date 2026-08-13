@@ -17,6 +17,7 @@ export type {
   QueuedDispatch,
   PromptTemplate,
   PendingReview,
+  InterruptedRun,
 } from '@shared/types.js'
 
 export type {
