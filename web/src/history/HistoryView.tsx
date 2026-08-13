@@ -1,32 +1,15 @@
-import { useEffect, useState } from 'react'
-import { ArrowLeft } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowLeft, Search } from 'lucide-react'
 import { apiFetch } from '../shared/api.js'
 import { Page } from '../shared/Page.js'
 import { ErrorLine } from '../shared/ErrorLine.js'
 import { FOCUS_RING } from '../shared/focus.js'
-import { relativeTime } from '../shared/format.js'
+import { duration, relativeTime, usd } from '../shared/format.js'
 import type { ProjectRecord } from '../shared/types.js'
 // Types only — erased at build time, nothing from src/server ships in the bundle.
 import type { RunRow, SpendDayRow } from '@server/history/db.js'
 
 const SPEND_DAYS = 90
-
-/** Two decimals under $10, whole dollars above — same voice as the SpendBar. */
-function usd(v: number): string {
-  return v < 10 ? `$${v.toFixed(2)}` : `$${Math.round(v)}`
-}
-
-/** `12s`, `4m 05s`, `1h 12m` between two stamps. A dash when either is unparsable. */
-function duration(startedAt: string, endedAt: string | null): string {
-  if (endedAt === null) return '—'
-  const ms = Date.parse(endedAt) - Date.parse(startedAt)
-  if (!Number.isFinite(ms) || ms < 0) return '—'
-  const s = Math.round(ms / 1000)
-  if (s < 60) return `${s}s`
-  const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`
-  return `${Math.floor(m / 60)}h ${m % 60}m`
-}
 
 // Statuses arrive as free strings from the db; unknown ones render colourless.
 const STATUS_TEXT: Record<string, string> = {
@@ -95,9 +78,18 @@ function SpendChart({ days }: { days: SpendDayRow[] }) {
   )
 }
 
-function RunsTable({ runs, projectName }: { runs: RunRow[]; projectName: (id: string) => string }) {
+/** First line of a run's prompt, clipped for the table. */
+function promptSnippet(prompt: string): string {
+  const line = prompt.split('\n', 1)[0] ?? ''
+  return line.length > 80 ? `${line.slice(0, 80)}…` : line
+}
+
+function RunsTable(
+  { runs, projectName, emptyText }:
+  { runs: RunRow[]; projectName: (id: string) => string; emptyText: string },
+) {
   if (runs.length === 0) {
-    return <p className="font-mono text-[11.5px] text-faint">No finished runs recorded yet.</p>
+    return <p className="font-mono text-[11.5px] text-faint">{emptyText}</p>
   }
   return (
     <div className="overflow-x-auto rounded-xl border border-neutral-800 bg-neutral-925">
@@ -113,7 +105,14 @@ function RunsTable({ runs, projectName }: { runs: RunRow[]; projectName: (id: st
           {runs.map(run => (
             <tr key={run.runId} className="border-b border-neutral-875 last:border-b-0 hover:bg-neutral-875">
               <td className="max-w-48 truncate px-4 py-2 text-neutral-200">{projectName(run.projectId)}</td>
-              <td className="px-4 py-2 text-muted">{run.taskId ?? '—'}</td>
+              <td className="max-w-72 px-4 py-2 text-muted">
+                {run.taskId ?? '—'}
+                {run.prompt != null && run.prompt !== '' && (
+                  <span className="mt-0.5 block truncate text-[10.5px] text-dim" title={run.prompt}>
+                    {promptSnippet(run.prompt)}
+                  </span>
+                )}
+              </td>
               <td className={`px-4 py-2 ${STATUS_TEXT[run.status] ?? 'text-muted'}`}>
                 {run.status}
                 {run.merged && <span className="ml-1.5 text-dim">merged</span>}
@@ -144,6 +143,30 @@ export function HistoryView(
   const [spendDays, setSpendDays] = useState<SpendDayRow[]>([])
   const [disabled, setDisabled] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  // Null while the query is empty — the table shows the plain list instead.
+  const [searchRuns, setSearchRuns] = useState<RunRow[] | null>(null)
+  const requestSeq = useRef(0)
+
+  useEffect(() => {
+    const trimmed = query.trim()
+    if (trimmed === '') {
+      setSearchRuns(null)
+      return
+    }
+    const seq = ++requestSeq.current
+    const timer = setTimeout(() => {
+      void apiFetch(`/api/history/search?q=${encodeURIComponent(trimmed)}&limit=100`)
+        .then(res => res.ok ? res.json() as Promise<{ runs: RunRow[] }> : null)
+        .then(body => {
+          // A slower earlier response must not overwrite a newer query's answer.
+          if (body === null || seq !== requestSeq.current) return
+          setSearchRuns(body.runs)
+        })
+        .catch(() => { /* server unreachable: keep whatever is shown */ })
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [query])
 
   useEffect(() => {
     let cancelled = false
@@ -201,9 +224,23 @@ export function HistoryView(
             <h2 className="font-mono text-[10.5px] font-medium tracking-[0.14em] uppercase text-faint">
               Past runs
             </h2>
-            {runs === null
-              ? <p className="font-mono text-[11.5px] text-faint">Loading…</p>
-              : <RunsTable runs={runs} projectName={projectName} />}
+            <div className="relative">
+              <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-faint" />
+              <input
+                data-testid="history-search-input"
+                type="search"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search past runs — prompt, output, task, branch…"
+                aria-label="Search past runs"
+                className={`w-full rounded-lg border border-neutral-800 bg-neutral-900 py-2 pr-3 pl-9 font-mono text-sm ${FOCUS_RING} focus:border-neutral-600`}
+              />
+            </div>
+            {searchRuns !== null
+              ? <RunsTable runs={searchRuns} projectName={projectName} emptyText="No matching runs." />
+              : runs === null
+                ? <p className="font-mono text-[11.5px] text-faint">Loading…</p>
+                : <RunsTable runs={runs} projectName={projectName} emptyText="No finished runs recorded yet." />}
           </section>
         </div>
       )}

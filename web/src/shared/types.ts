@@ -16,6 +16,7 @@ export type {
   DispatchInput,
   QueuedDispatch,
   PromptTemplate,
+  PendingReview,
 } from '@shared/types.js'
 
 export type {

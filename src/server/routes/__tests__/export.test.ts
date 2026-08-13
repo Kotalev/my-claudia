@@ -15,7 +15,8 @@ describe('GET /api/export', () => {
     // Keep the watcher and sessions registry off the real Claude data dir.
     process.env.CLAUDE_CONFIG_DIR = join(dir, 'claude')
     await mkdir(join(dir, 'claude', 'projects'), { recursive: true })
-    app = await buildServer(join(dir, 'projects.json'), join(dir, '.auth-token'))
+    app = await buildServer(join(dir, 'projects.json'), join(dir, '.auth-token'),
+      { worktreesRoot: join(dir, '.worktrees'), historyDbPath: join(dir, 'mc.db') })
     token = app.authToken
   })
 

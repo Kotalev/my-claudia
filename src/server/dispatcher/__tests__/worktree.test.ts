@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { collectDiff, createWorktree, isGitRepo, pruneStaleWorktrees, runBranch } from '../worktree.js'
+import { collectDiff, commitPendingChanges, createWorktree, isGitRepo, pruneStaleWorktrees, runBranch } from '../worktree.js'
 import { initRepo } from './init-repo.js'
 
 const exec = promisify(execFile)
@@ -110,6 +110,39 @@ describe('collectDiff', () => {
   it('degrades to an empty diff on a directory that is not a repo at all', async () => {
     const plain = await mkdtemp(join(tmpdir(), 'mc-plain-'))
     expect(await collectDiff(plain)).toEqual({ files: [], patch: '' })
+  })
+})
+
+describe('commitPendingChanges', () => {
+  it('commits modified and untracked files onto the run branch', async () => {
+    const repo = await initRepo()
+    const root = await mkdtemp(join(tmpdir(), 'mc-wt-'))
+    const { dir, branch } = await createWorktree(repo, root, 'run-commit1')
+    await writeFile(join(dir, 'file.txt'), 'one\ntwo\nthree\n')
+    await writeFile(join(dir, 'new.txt'), 'fresh\n')
+
+    const res = await commitPendingChanges(dir)
+    expect(res.code).toBe(0)
+    const status = await exec('git', ['-C', dir, 'status', '--porcelain'])
+    expect(status.stdout).toBe('')
+    const shown = await exec('git', ['-C', repo, 'show', `${branch}:new.txt`])
+    expect(shown.stdout).toBe('fresh\n')
+  })
+
+  it('is a no-op on a clean worktree', async () => {
+    const repo = await initRepo()
+    const root = await mkdtemp(join(tmpdir(), 'mc-wt-'))
+    const { dir } = await createWorktree(repo, root, 'run-commit2')
+    const before = await exec('git', ['-C', dir, 'rev-parse', 'HEAD'])
+    expect((await commitPendingChanges(dir)).code).toBe(0)
+    const after = await exec('git', ['-C', dir, 'rev-parse', 'HEAD'])
+    expect(after.stdout).toBe(before.stdout)
+  })
+
+  it('reports failure on a directory that is not a repo, without throwing', async () => {
+    const plain = await mkdtemp(join(tmpdir(), 'mc-plain-'))
+    const res = await commitPendingChanges(plain)
+    expect(res.code).not.toBe(0)
   })
 })
 

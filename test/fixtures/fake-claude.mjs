@@ -57,6 +57,9 @@ rl.on('line', line => {
     text = msg.message.content[0].text
   } catch { /* echo the placeholder */ }
   console.log(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: `echo:${text}` }] } }))
+  // echo-only never sends the result event, so the run stays 'running' — the
+  // watchdog tests use it to make output resume into a stalled run.
+  if (mode === 'echo-only') return
   console.log(JSON.stringify({ type: 'result', subtype: 'success', session_id: 'fake-session-123', total_cost_usd: 0.01, num_turns: 6 }))
 })
 rl.on('close', () => process.exit(0))

@@ -5,6 +5,7 @@ import type { LiveState } from '../shared/useLiveState.js'
 import { ProjectCard } from './ProjectCard.js'
 import { LiveBand } from './LiveBand.js'
 import { PermissionPrompts } from './PermissionPrompts.js'
+import { AttentionInbox } from './AttentionInbox.js'
 import { PlanLimitsBar } from './PlanLimits.js'
 import { SpendBar } from './SpendBar.js'
 import { NotifyButton } from './NotifyButton.js'
@@ -17,8 +18,8 @@ import { FOCUS_RING } from '../shared/focus.js'
 import { useClockTick } from '../shared/useClockTick.js'
 
 export function Overview(
-  { live, onOpenSession, onOpenProject, onOpenHistory }:
-  { live: LiveState; onOpenSession: (id: string) => void; onOpenProject: (id: string) => void; onOpenHistory: () => void },
+  { live, onOpenSession, onOpenProject, onOpenHistory, onOpenDigest }:
+  { live: LiveState; onOpenSession: (id: string) => void; onOpenProject: (id: string) => void; onOpenHistory: () => void; onOpenDigest: () => void },
 ) {
   const [adding, setAdding] = useState(false)
   const [removeError, setRemoveError] = useState<string | null>(null)
@@ -38,7 +39,7 @@ export function Overview(
     }
   }
 
-  const { projects, sessions, connected, planLimits, spend, account, permissions } = live
+  const { projects, sessions, connected, planLimits, spend, account, permissions, runs, queue, reviews } = live
   // Live sessions already have a home in the band above, whether or not their
   // project was ever registered here.
   const unassigned = sessions.filter(s => s.projectId === null && s.live === null)
@@ -78,6 +79,13 @@ export function Overview(
           >
             history
           </a>
+          <a
+            href="/digest"
+            onClick={e => { e.preventDefault(); onOpenDigest() }}
+            className={`rounded px-2 py-1 font-mono text-[11.5px] text-faint hover:bg-neutral-875 hover:text-neutral-200 ${FOCUS_RING}`}
+          >
+            digest
+          </a>
           <NotifyButton />
           <button
             data-testid="add-project-toggle"
@@ -104,6 +112,16 @@ export function Overview(
 
       {/* Above the Live band: a prompt someone is blocked on outranks everything running. */}
       <PermissionPrompts permissions={permissions} sessions={sessions} projects={projects} />
+
+      <AttentionInbox
+        sessions={sessions}
+        runs={runs}
+        queue={queue}
+        reviews={reviews}
+        projects={projects}
+        onOpenSession={onOpenSession}
+        onOpenProject={onOpenProject}
+      />
 
       <LiveBand sessions={sessions} projects={projects} onOpen={onOpenSession} onOpenProject={onOpenProject} />
 

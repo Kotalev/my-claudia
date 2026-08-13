@@ -8,9 +8,11 @@ const emptySpend = {
 }
 const emptySnapshot = () => ({
   projects: [], sessions: [], tasks: {}, planLimits: null, spend: emptySpend, account: null,
+  runs: [],
   permissions: [],
   schedules: [],
   queue: [],
+  reviews: [],
 })
 
 describe('EventHub', () => {

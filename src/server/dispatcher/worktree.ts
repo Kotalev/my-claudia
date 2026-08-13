@@ -58,6 +58,27 @@ export function runBranch(runId: string): string {
 }
 
 /**
+ * Commits whatever is pending in a run's worktree onto the run branch, so a
+ * merge delivers exactly what the review diff showed — runs are not required
+ * to commit their own work. The worktree is automation-owned by construction:
+ * staging everything there touches nothing of the user's checkout. No-op when
+ * clean. The identity flags keep the commit working on machines without a
+ * global git identity.
+ */
+export async function commitPendingChanges(worktreeDir: string): Promise<GitResult> {
+  const status = await git(['-C', worktreeDir, 'status', '--porcelain'])
+  if (status.code !== 0) return status
+  if (status.stdout.trim() === '') return { code: 0, stdout: '', stderr: '' }
+  const add = await git(['-C', worktreeDir, 'add', '--all'])
+  if (add.code !== 0) return add
+  return git([
+    '-C', worktreeDir,
+    '-c', 'user.email=mission-control@localhost', '-c', 'user.name=mission-control',
+    'commit', '-m', 'mc: run changes left uncommitted at review time',
+  ])
+}
+
+/**
  * Creates a linked worktree for a run under `worktreesRoot/<runId>`, on a new
  * branch off the project's current HEAD. Throws with git's own stderr when the
  * repo refuses (unborn HEAD, branch collision, …).
@@ -84,6 +105,21 @@ export async function createWorktree(
 /** Untracked files larger than this are listed in `files` but their content stays out of the patch. */
 const SMALL_UNTRACKED_BYTES = 64 * 1024
 
+/** Per-file counts from `git diff --numstat` output. Binary files report "-", which reads as 0. */
+export function parseNumstat(stdout: string): RunDiffFile[] {
+  const files: RunDiffFile[] = []
+  for (const line of stdout.split('\n')) {
+    if (!line.trim()) continue
+    const [additions, deletions, ...rest] = line.split('\t')
+    files.push({
+      path: rest.join('\t'),
+      additions: Number(additions) || 0,
+      deletions: Number(deletions) || 0,
+    })
+  }
+  return files
+}
+
 /**
  * The run's changes relative to the branch point: `diff <base>` (working tree
  * against the recorded base commit, so the run's own commits are included) for
@@ -106,17 +142,7 @@ export async function collectDiff(
     git(['-C', worktreeDir, 'status', '--porcelain', '-uall']),
   ])
 
-  const files: RunDiffFile[] = []
-  for (const line of numstat.stdout.split('\n')) {
-    if (!line.trim()) continue
-    const [additions, deletions, ...rest] = line.split('\t')
-    // Binary files report "-" for both counts; Number('-') is NaN → 0.
-    files.push({
-      path: rest.join('\t'),
-      additions: Number(additions) || 0,
-      deletions: Number(deletions) || 0,
-    })
-  }
+  const files = parseNumstat(numstat.stdout)
 
   let patch = patchRes.code === 0 ? patchRes.stdout : ''
   const appendPatch = (text: string): void => {

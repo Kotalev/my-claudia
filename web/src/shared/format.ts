@@ -41,6 +41,23 @@ export function clockTime(iso: string): string {
   return sameDay ? hm : `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')} ${hm}`
 }
 
+/** Two decimals under $10, whole dollars above — same voice as the SpendBar. */
+export function usd(v: number): string {
+  return v < 10 ? `$${v.toFixed(2)}` : `$${Math.round(v)}`
+}
+
+/** `12s`, `4m 05s`, `1h 12m` between two stamps. A dash when either is unparsable. */
+export function duration(startedAt: string, endedAt: string | null): string {
+  if (endedAt === null) return '—'
+  const ms = Date.parse(endedAt) - Date.parse(startedAt)
+  if (!Number.isFinite(ms) || ms < 0) return '—'
+  const s = Math.round(ms / 1000)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`
+  return `${Math.floor(m / 60)}h ${m % 60}m`
+}
+
 export function elapsed(iso: string): string {
   const ms = Date.now() - Date.parse(iso)
   if (!Number.isFinite(ms) || ms < 0) return '—'

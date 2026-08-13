@@ -16,6 +16,9 @@ function fakeDb(): HistoryDb & { runs: RunRow[]; spendDays: SpendDayRow[] } {
     upsertRun: run => { runs.push(run) },
     upsertSpendDay: row => { spendDays.push(row) },
     listRuns: () => [],
+    searchRuns: () => [],
+    listUnresolvedWorktreeRuns: () => [],
+    markRunResolved: () => { /* noop */ },
     listSpendDays: () => [],
     insertSchedule: () => { /* noop */ },
     deleteSchedule: () => { /* noop */ },
@@ -68,7 +71,8 @@ describe('HistoryRecorder', () => {
       status: 'succeeded', isolation: 'worktree', branch: 'mc/run-1',
       merged: false, discarded: false,
       startedAt: '2026-08-13T10:00:00.000Z', endedAt: '2026-08-13T10:05:00.000Z',
-      costUsd: 0.5, numTurns: 3, exitCode: 0,
+      costUsd: 0.5, numTurns: 3, exitCode: 0, loopId: null, baseCommit: null,
+      prompt: null, outputTail: null,
     }])
   })
 
@@ -78,12 +82,70 @@ describe('HistoryRecorder', () => {
   })
 
   it('re-records the run when merged flips, via the dispatcher update event', () => {
-    const dispatcher = new EventEmitter()
+    const dispatcher = Object.assign(new EventEmitter(), { originalInput: () => undefined })
     recorder.attach(dispatcher as unknown as Dispatcher)
     dispatcher.emit('update', handle())
     dispatcher.emit('update', handle({ merged: true }))
     expect(db.runs).toHaveLength(2)
     expect(db.runs[1]?.merged).toBe(true)
+  })
+
+  describe('prompt and output tail', () => {
+    /** An emitter that also answers originalInput, like the real Dispatcher. */
+    function fakeDispatcher(prompts: Record<string, string> = {}) {
+      const emitter = new EventEmitter() as EventEmitter & {
+        originalInput(runId: string): { prompt: string } | undefined
+      }
+      emitter.originalInput = runId =>
+        runId in prompts ? { prompt: prompts[runId]! } : undefined
+      return emitter
+    }
+
+    it('persists the prompt and the accumulated output on the run-ended upsert', () => {
+      const dispatcher = fakeDispatcher({ 'run-1': 'do the thing' })
+      recorder.attach(dispatcher as unknown as Dispatcher)
+      dispatcher.emit('output', { runId: 'run-1', chunk: 'hello ' })
+      dispatcher.emit('output', { runId: 'run-1', chunk: 'world' })
+      dispatcher.emit('update', handle())
+      expect(db.runs[0]).toMatchObject({ prompt: 'do the thing', outputTail: 'hello world' })
+    })
+
+    it('keeps only the end of oversized output, capped at 32 KB', () => {
+      const dispatcher = fakeDispatcher()
+      recorder.attach(dispatcher as unknown as Dispatcher)
+      dispatcher.emit('output', { runId: 'run-1', chunk: 'x'.repeat(40_000) })
+      dispatcher.emit('output', { runId: 'run-1', chunk: 'THE END' })
+      dispatcher.emit('update', handle())
+      const tail = db.runs[0]?.outputTail
+      expect(tail).toHaveLength(32 * 1024)
+      expect(tail?.endsWith('THE END')).toBe(true)
+    })
+
+    it('drops the buffer once the run ends — a later re-record upserts null, cancelled runs included', () => {
+      const dispatcher = fakeDispatcher()
+      recorder.attach(dispatcher as unknown as Dispatcher)
+      dispatcher.emit('output', { runId: 'run-1', chunk: 'output before cancel' })
+      dispatcher.emit('update', handle({ status: 'cancelled', exitCode: null }))
+      dispatcher.emit('update', handle({ status: 'cancelled', exitCode: null, merged: true }))
+      expect(db.runs[0]?.outputTail).toBe('output before cancel')
+      expect(db.runs[1]?.outputTail).toBeNull()
+    })
+
+    it('records null prompt/tail for a run without a dispatcher or output', () => {
+      recorder.recordRun(handle())
+      expect(db.runs[0]).toMatchObject({ prompt: null, outputTail: null })
+    })
+
+    it('keeps output buffered while the run is still going', () => {
+      const dispatcher = fakeDispatcher()
+      recorder.attach(dispatcher as unknown as Dispatcher)
+      dispatcher.emit('output', { runId: 'run-1', chunk: 'part one, ' })
+      dispatcher.emit('update', handle({ endedAt: null, status: 'running' }))
+      dispatcher.emit('output', { runId: 'run-1', chunk: 'part two' })
+      dispatcher.emit('update', handle())
+      expect(db.runs).toHaveLength(1)
+      expect(db.runs[0]?.outputTail).toBe('part one, part two')
+    })
   })
 
   it('pins a spend summary onto its local calendar day', () => {

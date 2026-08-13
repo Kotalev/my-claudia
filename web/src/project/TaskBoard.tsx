@@ -20,26 +20,59 @@ const CHECKBOX: Record<TaskStatus, string> = {
   todo: '[ ]', 'in-progress': '[~]', done: '[x]',
 }
 
+/** What the schedule form sends beside the time; null repeat = one-shot. */
+export interface ScheduleOptions {
+  repeatEveryMs: number | null
+  maxIterations: number | null
+}
+
+/** A loop's cadence line: "every 60m · iteration 3". */
+export function loopLabel(s: ScheduleJob): string | null {
+  if (s.repeatEveryMs == null) return null
+  const minutes = Math.round(s.repeatEveryMs / 60_000)
+  const upTo = s.maxIterations != null ? `/${s.maxIterations}` : ''
+  return `every ${minutes}m · iteration ${s.iteration ?? 1}${upTo}`
+}
+
 /**
  * The inline "run this later" affordance: a clock button that unfolds a
  * datetime-local input. Submitting posts the schedule; the pending line under
- * the card arrives over the socket, so this only has to close itself.
+ * the card arrives over the socket, so this only has to close itself. An
+ * optional repeat interval turns the schedule into a loop.
  */
-function ScheduleControl({ task, onSchedule }: { task: Task; onSchedule: (task: Task, atIso: string) => Promise<void> }) {
+function ScheduleControl({ task, onSchedule }: { task: Task; onSchedule: (task: Task, atIso: string, opts: ScheduleOptions) => Promise<void> }) {
   const [open, setOpen] = useState(false)
   const [value, setValue] = useState('')
+  const [everyMin, setEveryMin] = useState('')
+  const [maxIter, setMaxIter] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const submit = async (): Promise<void> => {
     const at = new Date(value)
     if (Number.isNaN(at.getTime())) { setError('pick a time'); return }
+    const minutes = everyMin === '' ? null : Number(everyMin)
+    if (minutes !== null && (!Number.isInteger(minutes) || minutes < 1)) {
+      setError('repeat must be a whole number of minutes'); return
+    }
+    const iterations = maxIter === '' ? null : Number(maxIter)
+    if (iterations !== null && (!Number.isInteger(iterations) || iterations < 1)) {
+      setError('max iterations must be a whole number'); return
+    }
+    if (minutes === null && iterations !== null) {
+      setError('max iterations needs a repeat interval'); return
+    }
     setBusy(true)
     setError(null)
     try {
-      await onSchedule(task, at.toISOString())
+      await onSchedule(task, at.toISOString(), {
+        repeatEveryMs: minutes === null ? null : minutes * 60_000,
+        maxIterations: iterations,
+      })
       setOpen(false)
       setValue('')
+      setEveryMin('')
+      setMaxIter('')
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -76,6 +109,33 @@ function ScheduleControl({ task, onSchedule }: { task: Task; onSchedule: (task: 
             className={`rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 font-mono
               text-[10.5px] text-muted [color-scheme:dark] ${FOCUS_RING}`}
           />
+          <label className="flex items-center gap-1 text-[10.5px] text-faint">
+            every
+            <input
+              type="number"
+              min={1}
+              value={everyMin}
+              onChange={e => setEveryMin(e.target.value)}
+              placeholder="—"
+              aria-label={`Repeat ${task.id} every N minutes (empty for one-shot)`}
+              className={`w-12 rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 font-mono
+                text-[10.5px] text-muted [color-scheme:dark] ${FOCUS_RING}`}
+            />
+            min
+          </label>
+          <label className="flex items-center gap-1 text-[10.5px] text-faint">
+            max
+            <input
+              type="number"
+              min={1}
+              value={maxIter}
+              onChange={e => setMaxIter(e.target.value)}
+              placeholder="∞"
+              aria-label={`Stop the ${task.id} loop after N iterations`}
+              className={`w-12 rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 font-mono
+                text-[10.5px] text-muted [color-scheme:dark] ${FOCUS_RING}`}
+            />
+          </label>
           <button
             type="submit"
             disabled={busy || value === ''}
@@ -100,7 +160,7 @@ function TaskCard(
     running: boolean
     /** Pending schedules for THIS task only. */
     schedules?: ScheduleJob[]
-    onSchedule?: (task: Task, atIso: string) => Promise<void>
+    onSchedule?: (task: Task, atIso: string, opts: ScheduleOptions) => Promise<void>
     onCancelSchedule?: (scheduleId: string) => void
   },
 ) {
@@ -181,6 +241,7 @@ function TaskCard(
                 <p key={s.id} data-testid="task-schedule" className="flex items-center gap-1.5 font-mono text-[10.5px] text-alarm">
                   <Clock aria-hidden="true" className="size-2.5 shrink-0" />
                   runs at {clockTime(s.runAt)}
+                  {loopLabel(s) !== null && <span className="text-faint">· {loopLabel(s)}</span>}
                   {onCancelSchedule && (
                     <button
                       type="button"
@@ -229,7 +290,7 @@ export function TaskBoard(
     onDispatch?: (task: Task) => void
     /** Pending schedules for this project; each card shows only its own. */
     schedules?: ScheduleJob[]
-    onSchedule?: (task: Task, atIso: string) => Promise<void>
+    onSchedule?: (task: Task, atIso: string, opts: ScheduleOptions) => Promise<void>
     onCancelSchedule?: (scheduleId: string) => void
     /**
      * One run per project. The button is disabled rather than removed: it used

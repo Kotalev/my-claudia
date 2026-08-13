@@ -59,6 +59,11 @@ function deriveStatus(state: SessionState, fresh: boolean): SessionStatus {
     // the same situation as an interactive session's `waiting`.
     if (state.live.state === 'waiting' || state.live.state === 'blocked') return 'waiting'
     if (state.live.state === 'busy') return 'active'
+    // Registry `idle` is Claude Code saying the turn is over. The Stop hook and
+    // statusline fire at exactly that moment, so recent-activity freshness must
+    // not outvote it — that kept finished sessions "working" for the whole
+    // active window. Freshness only decides when no status was stated at all.
+    if (state.live.state === 'idle') return 'idle'
     return fresh ? 'active' : 'idle'
   }
   if (state.ended || state.wasLive) return 'done'

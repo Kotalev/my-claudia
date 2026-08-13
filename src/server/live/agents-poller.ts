@@ -33,11 +33,13 @@ function asString(v: unknown): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null
 }
 
-function stateOf(o: Record<string, unknown>): LiveState {
+function stateOf(o: Record<string, unknown>): LiveState | null {
   if (o.status === 'busy' || o.status === 'waiting') return o.status
   if (o.state === 'blocked') return 'blocked'
   if (o.state === 'running') return 'busy'
-  return 'idle'
+  // Anything else states no usable status; null lets activity recency decide
+  // instead of an invented `idle` cutting a working agent off immediately.
+  return null
 }
 
 /**

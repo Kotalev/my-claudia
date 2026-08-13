@@ -18,6 +18,18 @@ export function registerHistoryRoutes(app: FastifyInstance, history: HistoryDb):
       }
     })
 
+  app.get<{ Querystring: { q?: string; projectId?: string; limit?: string } }>(
+    '/api/history/search', async req => {
+      if (!history.enabled) return { disabled: true, runs: [] }
+      const q = typeof req.query.q === 'string' ? req.query.q : ''
+      const parsed = Number(req.query.limit)
+      const limit = Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : 100
+      return {
+        disabled: false,
+        runs: history.searchRuns(q, { projectId: req.query.projectId ?? null, limit }),
+      }
+    })
+
   app.get<{ Querystring: { days?: string } }>('/api/history/spend', async req => {
     if (!history.enabled) return { disabled: true, days: [] }
     const parsed = Number(req.query.days)

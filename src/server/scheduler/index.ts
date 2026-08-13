@@ -43,7 +43,7 @@ export class Scheduler extends EventEmitter {
         this.#db.deleteSchedule(job.id)
         continue
       }
-      this.#jobs.set(job.id, job)
+      this.#jobs.set(job.id, withLoopDefaults(job))
     }
     this.#arm()
   }
@@ -53,8 +53,16 @@ export class Scheduler extends EventEmitter {
     return [...this.#jobs.values()].sort((a, b) => this.#time(a) - this.#time(b))
   }
 
-  add(input: Omit<ScheduleJob, 'id' | 'createdAt'>): ScheduleJob {
-    const job: ScheduleJob = { ...input, id: randomUUID(), createdAt: new Date(this.#now()).toISOString() }
+  add(input: ScheduleInput): ScheduleJob {
+    const job: ScheduleJob = {
+      ...input,
+      repeatEveryMs: input.repeatEveryMs ?? null,
+      loopId: input.loopId ?? null,
+      iteration: input.iteration ?? 1,
+      maxIterations: input.maxIterations ?? null,
+      stopAfterFailures: input.stopAfterFailures ?? null,
+      id: randomUUID(), createdAt: new Date(this.#now()).toISOString(),
+    }
     this.#jobs.set(job.id, job)
     this.#db.insertSchedule(job)
     this.#arm()
@@ -109,3 +117,24 @@ export class Scheduler extends EventEmitter {
 
 const MAX_OVERDUE_MS = 24 * 60 * 60 * 1000
 const MAX_TIMER_MS = 2 ** 31 - 1
+
+/** Loop fields default (one-shot) so pre-loop callers keep their call shape. */
+type LoopField = 'repeatEveryMs' | 'loopId' | 'iteration' | 'maxIterations' | 'stopAfterFailures'
+export type ScheduleInput =
+  Omit<ScheduleJob, 'id' | 'createdAt' | LoopField> & Partial<Pick<ScheduleJob, LoopField>>
+
+/**
+ * A row persisted before the loop columns existed (or hand-edited since) may
+ * miss them at runtime whatever the type says; reload defaults it to one-shot.
+ */
+function withLoopDefaults(job: ScheduleJob): ScheduleJob {
+  const raw: Partial<ScheduleJob> = job
+  return {
+    ...job,
+    repeatEveryMs: raw.repeatEveryMs ?? null,
+    loopId: raw.loopId ?? null,
+    iteration: raw.iteration ?? 1,
+    maxIterations: raw.maxIterations ?? null,
+    stopAfterFailures: raw.stopAfterFailures ?? null,
+  }
+}

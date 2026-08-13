@@ -22,6 +22,7 @@ function job(over: Partial<ScheduleJob> = {}): ScheduleJob {
     sessionId: 'sess-1', prompt: 'continue',
     runAt: '2026-08-13T12:00:00.000Z', createdAt: '2026-08-13T10:00:00.000Z',
     note: null,
+    repeatEveryMs: null, loopId: null, iteration: 1, maxIterations: null, stopAfterFailures: null,
     ...over,
   }
 }
@@ -167,6 +168,43 @@ describe('Scheduler', () => {
     expect(scheduler.list().map(j => j.id)).toEqual([added.id])
     vi.advanceTimersByTime(1_001)
     expect(fired.map(j => j.id)).toEqual([added.id])
+  })
+
+  it('add() defaults the loop fields to a one-shot and carries explicit ones', () => {
+    scheduler = new Scheduler(memoryDb())
+    scheduler.start()
+    const oneShot = scheduler.add({
+      kind: 'dispatch-task', projectId: 'p1', taskId: 'T-001', sessionId: null,
+      prompt: null, runAt: new Date(NOW.getTime() + 60_000).toISOString(), note: null,
+    })
+    expect(oneShot).toMatchObject({
+      repeatEveryMs: null, loopId: null, iteration: 1, maxIterations: null, stopAfterFailures: null,
+    })
+
+    const loop = scheduler.add({
+      kind: 'dispatch-task', projectId: 'p1', taskId: 'T-001', sessionId: null,
+      prompt: null, runAt: new Date(NOW.getTime() + 60_000).toISOString(), note: null,
+      repeatEveryMs: 120_000, loopId: 'loop-1', iteration: 3, maxIterations: 5, stopAfterFailures: 2,
+    })
+    expect(loop).toMatchObject({
+      repeatEveryMs: 120_000, loopId: 'loop-1', iteration: 3, maxIterations: 5, stopAfterFailures: 2,
+    })
+  })
+
+  it('defaults loop fields missing from a persisted row (pre-loop db) on reload', () => {
+    const legacy = job({ id: 'legacy', runAt: new Date(NOW.getTime() + 60_000).toISOString() })
+    // A row written before the loop columns existed carries none of them.
+    delete (legacy as Partial<ScheduleJob>).repeatEveryMs
+    delete (legacy as Partial<ScheduleJob>).loopId
+    delete (legacy as Partial<ScheduleJob>).iteration
+    delete (legacy as Partial<ScheduleJob>).maxIterations
+    delete (legacy as Partial<ScheduleJob>).stopAfterFailures
+    scheduler = new Scheduler(memoryDb([legacy]))
+    scheduler.start()
+    expect(scheduler.list()[0]).toMatchObject({
+      id: 'legacy',
+      repeatEveryMs: null, loopId: null, iteration: 1, maxIterations: null, stopAfterFailures: null,
+    })
   })
 
   it('lists soonest first', () => {

@@ -66,15 +66,16 @@ describe('parseSessionFile', () => {
     expect(p?.waitingFor).toBe('permission')
   })
 
-  it('treats a missing status as idle rather than inventing activity', () => {
-    // sdk-cli entries genuinely have no status field.
+  it('reports a missing status as no status rather than inventing idle', () => {
+    // sdk-cli entries genuinely have no status field. An invented `idle` would
+    // make deriveStatus declare a working sdk session finished.
     const p = parseSessionFile(JSON.stringify({ pid: 48483, sessionId: 's', entrypoint: 'sdk-cli' }))
-    expect(p?.state).toBe('idle')
+    expect(p?.state).toBeNull()
   })
 
-  it('treats an unrecognised status as idle', () => {
+  it('reports an unrecognised status as no status', () => {
     const p = parseSessionFile(JSON.stringify({ pid: 1, sessionId: 's', status: 'compacting-or-whatever-is-next' }))
-    expect(p?.state).toBe('idle')
+    expect(p?.state).toBeNull()
   })
 
   it('returns null for a half-written file rather than throwing', () => {
@@ -261,10 +262,10 @@ describe('parseSessionFile — the status enum Claude Code actually writes', () 
     expect(parseSessionFile(withStatus('shell'))?.state).toBe('busy')
   })
 
-  it('reads idle as idle and anything unknown as idle too', () => {
+  it('reads idle literally and anything unknown as no status', () => {
     expect(parseSessionFile(withStatus('idle'))?.state).toBe('idle')
-    expect(parseSessionFile(withStatus('something-new'))?.state).toBe('idle')
-    expect(parseSessionFile(withStatus(undefined))?.state).toBe('idle')
+    expect(parseSessionFile(withStatus('something-new'))?.state).toBeNull()
+    expect(parseSessionFile(withStatus(undefined))?.state).toBeNull()
   })
 })
 

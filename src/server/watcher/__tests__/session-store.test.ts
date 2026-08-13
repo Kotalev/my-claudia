@@ -166,6 +166,32 @@ describe('SessionStore — live processes', () => {
     expect(store.get('s1')?.status).toBe('active')
   })
 
+  it('reads registry idle as idle even under fresh hook activity', () => {
+    // The Stop hook and statusline both fire at turn end, so a finished turn is
+    // always "fresh" — freshness must not overrule Claude Code's own idle.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-12T10:00:30.000Z'))
+    const store = new SessionStore()
+    store.apply('s1', [entry()], stats, null)
+    store.markActive('s1', null)
+    store.setLive([live({ state: 'idle' })])
+    expect(store.get('s1')?.status).toBe('idle')
+  })
+
+  it('lets freshness decide for a live process that states no status at all', () => {
+    // sdk-cli registry entries and background agents carry no status.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-12T10:00:30.000Z'))
+    const store = new SessionStore()
+    store.apply('s1', [entry()], stats, null)
+    store.markActive('s1', null)
+    store.setLive([live({ state: null })])
+    expect(store.get('s1')?.status).toBe('active')
+
+    vi.setSystemTime(new Date('2026-08-12T10:30:00.000Z'))
+    expect(store.get('s1')?.status).toBe('idle')
+  })
+
   it('surfaces a session it has never seen a transcript line for', () => {
     const store = new SessionStore()
     store.setLive([live({ sessionId: 'brand-new' })])

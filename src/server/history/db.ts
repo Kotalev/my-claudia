@@ -30,6 +30,14 @@ export interface RunRow {
   costUsd: number | null
   numTurns: number | null
   exitCode: number | null
+  /** The loop schedule that started the run, for grouping. Null for manual runs. */
+  loopId: string | null
+  /** Commit the run branched from, so a review diff survives a restart. */
+  baseCommit: string | null
+  /** The prompt that started the run. Optional: rows recorded before migration 7 have none. */
+  prompt?: string | null
+  /** The last ~32 KB of the run's output — the end is where results live. */
+  outputTail?: string | null
 }
 
 /** One calendar day of spend. `costUsd` null means "nothing priceable", not zero. */
@@ -45,6 +53,19 @@ export interface HistoryDb {
   upsertSpendDay(row: SpendDayRow): void
   /** Newest first by `startedAt`. `limit` is clamped to 1..1000, default 100. */
   listRuns(opts?: { projectId?: string | null; limit?: number }): RunRow[]
+  /**
+   * Runs whose prompt, output tail, task id or branch contains `q`
+   * (case-insensitive substring), newest first. Empty `q` finds nothing.
+   */
+  searchRuns(q: string, opts?: { projectId?: string | null; limit?: number }): RunRow[]
+  /**
+   * Ended worktree runs whose changes are neither merged nor discarded and
+   * that still name a branch — the review backlog a restart must not erase.
+   * Newest first.
+   */
+  listUnresolvedWorktreeRuns(): RunRow[]
+  /** Flips merged/discarded on a persisted run — the restart-surviving mirror of `Dispatcher.markResolved`. */
+  markRunResolved(runId: string, outcome: 'merged' | 'discarded'): void
   /** Days at or after `sinceDay` (inclusive), oldest first. */
   listSpendDays(sinceDay: string): SpendDayRow[]
   insertSchedule(job: ScheduleJob): void
@@ -149,6 +170,28 @@ const MIGRATIONS: readonly string[] = [
     created_at TEXT NOT NULL
   );
   `,
+  // Loop schedules (T-066): the recurring-dispatch fields on schedules, and
+  // the loop id on runs so history can group a loop's runs. Old rows read
+  // back as NULL — a one-shot.
+  `
+  ALTER TABLE schedules ADD COLUMN repeat_every_ms INTEGER;
+  ALTER TABLE schedules ADD COLUMN loop_id TEXT;
+  ALTER TABLE schedules ADD COLUMN iteration INTEGER;
+  ALTER TABLE schedules ADD COLUMN max_iterations INTEGER;
+  ALTER TABLE schedules ADD COLUMN stop_after_failures INTEGER;
+  ALTER TABLE runs ADD COLUMN loop_id TEXT;
+  `,
+  // Review queue (T-069): the commit a worktree run branched from, so an
+  // unresolved run can still be diffed and merged after a server restart.
+  `
+  ALTER TABLE runs ADD COLUMN base_commit TEXT;
+  `,
+  // History search (T-072): the run's prompt and the tail of its output, so
+  // past runs can be found by text. Old rows read back as NULL.
+  `
+  ALTER TABLE runs ADD COLUMN prompt TEXT;
+  ALTER TABLE runs ADD COLUMN output_tail TEXT;
+  `,
 ]
 
 /** The handle everything gets when SQLite is not available. Inert, never throws. */
@@ -157,6 +200,9 @@ export const DISABLED_HISTORY: HistoryDb = {
   upsertRun() { /* disabled */ },
   upsertSpendDay() { /* disabled */ },
   listRuns: () => [],
+  searchRuns: () => [],
+  listUnresolvedWorktreeRuns: () => [],
+  markRunResolved() { /* disabled */ },
   listSpendDays: () => [],
   // The Scheduler keeps its own in-memory job set and only mirrors it here, so
   // with these as no-ops schedules still work — they just die with the process.
@@ -230,8 +276,9 @@ class SqliteHistoryDb implements HistoryDb {
     try {
       this.#db.prepare(`
         INSERT INTO runs (run_id, project_id, task_id, session_id, status, isolation, branch,
-          merged, discarded, started_at, ended_at, cost_usd, num_turns, exit_code)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          merged, discarded, started_at, ended_at, cost_usd, num_turns, exit_code, loop_id, base_commit,
+          prompt, output_tail)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(run_id) DO UPDATE SET
           session_id = excluded.session_id,
           status = excluded.status,
@@ -241,11 +288,16 @@ class SqliteHistoryDb implements HistoryDb {
           ended_at = excluded.ended_at,
           cost_usd = excluded.cost_usd,
           num_turns = excluded.num_turns,
-          exit_code = excluded.exit_code
+          exit_code = excluded.exit_code,
+          loop_id = excluded.loop_id,
+          base_commit = excluded.base_commit,
+          prompt = COALESCE(excluded.prompt, prompt),
+          output_tail = COALESCE(excluded.output_tail, output_tail)
       `).run(
         run.runId, run.projectId, run.taskId, run.sessionId, run.status, run.isolation,
         run.branch, run.merged ? 1 : 0, run.discarded ? 1 : 0, run.startedAt, run.endedAt,
-        run.costUsd, run.numTurns, run.exitCode,
+        run.costUsd, run.numTurns, run.exitCode, run.loopId ?? null, run.baseCommit ?? null,
+        run.prompt ?? null, run.outputTail ?? null,
       )
     } catch { /* history loss is acceptable; a crash is not */ }
   }
@@ -273,6 +325,51 @@ class SqliteHistoryDb implements HistoryDb {
     }
   }
 
+  searchRuns(q: string, opts: { projectId?: string | null; limit?: number } = {}): RunRow[] {
+    const needle = typeof q === 'string' ? q.trim() : ''
+    if (needle === '') return []
+    const limit = Math.max(1, Math.min(1000, Math.floor(opts.limit ?? 100)))
+    // Plain LIKE, deliberately not FTS5: node:sqlite's FTS availability is
+    // uncertain across Node builds, and the runs table is small enough that a
+    // scan is fine. %/_ are literal characters in the query, so escape them.
+    const pattern = `%${needle.replace(/[\\%_]/g, c => `\\${c}`)}%`
+    const match = `(prompt LIKE ? ESCAPE '\\' OR output_tail LIKE ? ESCAPE '\\'
+      OR task_id LIKE ? ESCAPE '\\' OR branch LIKE ? ESCAPE '\\')`
+    try {
+      const rows = opts.projectId
+        ? this.#db.prepare(
+            `SELECT * FROM runs WHERE project_id = ? AND ${match} ORDER BY started_at DESC LIMIT ?`,
+          ).all(opts.projectId, pattern, pattern, pattern, pattern, limit)
+        : this.#db.prepare(
+            `SELECT * FROM runs WHERE ${match} ORDER BY started_at DESC LIMIT ?`,
+          ).all(pattern, pattern, pattern, pattern, limit)
+      return rows.map(toRunRow)
+    } catch {
+      return []
+    }
+  }
+
+  listUnresolvedWorktreeRuns(): RunRow[] {
+    try {
+      const rows = this.#db.prepare(`
+        SELECT * FROM runs
+        WHERE ended_at IS NOT NULL AND isolation = 'worktree'
+          AND merged = 0 AND discarded = 0 AND branch IS NOT NULL
+        ORDER BY started_at DESC
+      `).all()
+      return rows.map(toRunRow)
+    } catch {
+      return []
+    }
+  }
+
+  markRunResolved(runId: string, outcome: 'merged' | 'discarded'): void {
+    try {
+      const column = outcome === 'merged' ? 'merged' : 'discarded'
+      this.#db.prepare(`UPDATE runs SET ${column} = 1 WHERE run_id = ?`).run(runId)
+    } catch { /* see upsertRun */ }
+  }
+
   listSpendDays(sinceDay: string): SpendDayRow[] {
     try {
       const rows = this.#db.prepare(
@@ -291,9 +388,12 @@ class SqliteHistoryDb implements HistoryDb {
   insertSchedule(job: ScheduleJob): void {
     try {
       this.#db.prepare(`
-        INSERT OR REPLACE INTO schedules (id, kind, project_id, task_id, session_id, prompt, run_at, created_at, note)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(job.id, job.kind, job.projectId, job.taskId, job.sessionId, job.prompt, job.runAt, job.createdAt, job.note)
+        INSERT OR REPLACE INTO schedules (id, kind, project_id, task_id, session_id, prompt, run_at, created_at, note,
+          repeat_every_ms, loop_id, iteration, max_iterations, stop_after_failures)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(job.id, job.kind, job.projectId, job.taskId, job.sessionId, job.prompt, job.runAt, job.createdAt, job.note,
+        job.repeatEveryMs ?? null, job.loopId ?? null, job.iteration ?? 1,
+        job.maxIterations ?? null, job.stopAfterFailures ?? null)
     } catch { /* see upsertRun */ }
   }
 
@@ -376,6 +476,11 @@ function toScheduleJob(r: Record<string, unknown>): ScheduleJob {
     runAt: str(r.run_at),
     createdAt: str(r.created_at),
     note: strOrNull(r.note),
+    repeatEveryMs: num(r.repeat_every_ms),
+    loopId: strOrNull(r.loop_id),
+    iteration: num(r.iteration) ?? 1,
+    maxIterations: num(r.max_iterations),
+    stopAfterFailures: num(r.stop_after_failures),
   }
 }
 
@@ -395,5 +500,9 @@ function toRunRow(r: Record<string, unknown>): RunRow {
     costUsd: num(r.cost_usd),
     numTurns: num(r.num_turns),
     exitCode: num(r.exit_code),
+    loopId: strOrNull(r.loop_id),
+    baseCommit: strOrNull(r.base_commit),
+    prompt: strOrNull(r.prompt),
+    outputTail: strOrNull(r.output_tail),
   }
 }

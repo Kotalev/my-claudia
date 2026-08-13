@@ -40,14 +40,17 @@ function asString(v: unknown): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null
 }
 
-function stateOf(status: unknown): LiveState {
+function stateOf(status: unknown): LiveState | null {
   // Claude Code's own enum is busy | shell | idle | waiting (read out of the 2.1.228
   // binary). `shell` is a foreground shell command, which is the session working,
-  // not blocked on anyone. `sdk-cli` entries carry no status at all, and an unknown
-  // value must not invent activity — anything we do not recognise reads as idle.
-  if (status === 'busy' || status === 'waiting') return status
+  // not blocked on anyone. `idle` is passed through literally: it is Claude Code's
+  // own word that the turn is over, and deriveStatus takes it at face value.
+  // `sdk-cli` entries carry no status at all, and an unknown value could mean
+  // anything — both read as null so that activity recency decides, rather than
+  // inventing an `idle` that would declare a working session finished.
+  if (status === 'busy' || status === 'waiting' || status === 'idle') return status
   if (status === 'shell') return 'busy'
-  return 'idle'
+  return null
 }
 
 /**

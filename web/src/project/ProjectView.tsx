@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../shared/api.js'
 import { ArrowLeft, MessagesSquare } from 'lucide-react'
-import type { ProjectRecord, QueuedDispatch, RunHandle, ScheduleJob, SessionSummary, Task, TasksDoc } from '../shared/types.js'
+import type { PendingReview, ProjectRecord, QueuedDispatch, RunHandle, ScheduleJob, SessionSummary, Task, TasksDoc } from '../shared/types.js'
 import { NewTaskForm } from './NewTaskForm.js'
 import { PromptRunForm } from './PromptRunForm.js'
-import { NEXT_STATUS, TaskBoard } from './TaskBoard.js'
+import { NEXT_STATUS, TaskBoard, type ScheduleOptions } from './TaskBoard.js'
 import { SessionRow } from '../overview/SessionRow.js'
 import { RunPanel } from './RunPanel.js'
+import { PendingReviews } from './PendingReviews.js'
 import { HooksBadge } from './HooksBadge.js'
 import { Page } from '../shared/Page.js'
 import { ErrorLine } from '../shared/ErrorLine.js'
@@ -30,7 +31,7 @@ function queuedLabel(q: QueuedDispatch): string {
 }
 
 export function ProjectView(
-  { project, sessions, doc, runs, runOutput, schedules, queue, onBack, onOpenSession }:
+  { project, sessions, doc, runs, runOutput, schedules, queue, reviews, onBack, onOpenSession }:
   {
     project: ProjectRecord
     sessions: SessionSummary[]
@@ -39,6 +40,7 @@ export function ProjectView(
     runOutput: Record<string, string>
     schedules: ScheduleJob[]
     queue: QueuedDispatch[]
+    reviews: PendingReview[]
     onBack: () => void
     onOpenSession: (id: string) => void
   },
@@ -127,11 +129,15 @@ export function ProjectView(
     void apiFetch(`/api/queue/${queueId}`, { method: 'DELETE' })
   }, [])
 
-  const scheduleTask = useCallback(async (task: Task, atIso: string) => {
+  const scheduleTask = useCallback(async (task: Task, atIso: string, opts: ScheduleOptions) => {
     const res = await apiFetch(`/api/projects/${project.id}/tasks/${task.id}/schedule`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ at: atIso }),
+      body: JSON.stringify({
+        at: atIso,
+        ...(opts.repeatEveryMs !== null && { repeatEveryMs: opts.repeatEveryMs }),
+        ...(opts.maxIterations !== null && { maxIterations: opts.maxIterations }),
+      }),
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
@@ -205,6 +211,7 @@ export function ProjectView(
               </button>
             </div>
           ))}
+          <PendingReviews reviews={reviews} />
           {shownFinished.map(run => (
             <RunPanel key={run.runId} run={run} output={runOutput[run.runId] ?? ''} onCancel={cancelRun} onRetry={retryRun} autoContinueAt={autoContinueAt(run)} collapsed />
           ))}

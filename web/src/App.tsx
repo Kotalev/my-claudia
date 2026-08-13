@@ -3,6 +3,7 @@ import { Overview } from './overview/Overview.js'
 import { SessionView } from './session/SessionView.js'
 import { ProjectView } from './project/ProjectView.js'
 import { HistoryView } from './history/HistoryView.js'
+import { DigestView } from './digest/DigestView.js'
 import { useLiveState } from './shared/useLiveState.js'
 import { useRoute } from './shared/route.js'
 
@@ -60,6 +61,7 @@ export function App() {
         runOutput={live.runOutput}
         schedules={live.schedules.filter(s => s.projectId === project.id)}
         queue={live.queue.filter(q => q.projectId === project.id)}
+        reviews={live.reviews.filter(r => r.projectId === project.id)}
         onBack={() => navigate({ projectId: null, sessionId: null })}
         onOpenSession={id => navigate({ ...route, sessionId: id })}
       />
@@ -75,12 +77,23 @@ export function App() {
     )
   }
 
+  if (route.digest) {
+    return (
+      <DigestView
+        projects={live.projects}
+        onBack={() => navigate({ projectId: null, sessionId: null })}
+        onOpenProject={id => navigate({ projectId: id, sessionId: null })}
+      />
+    )
+  }
+
   return (
     <Overview
       live={live}
       onOpenSession={id => navigate({ projectId: null, sessionId: id })}
       onOpenProject={id => navigate({ projectId: id, sessionId: null })}
       onOpenHistory={() => navigate({ projectId: null, sessionId: null, history: true })}
+      onOpenDigest={() => navigate({ projectId: null, sessionId: null, digest: true })}
     />
   )
 }

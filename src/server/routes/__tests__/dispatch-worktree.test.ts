@@ -202,6 +202,19 @@ describe('POST /api/runs/:id/merge', () => {
     await app.close()
   })
 
+  it('merges uncommitted worktree changes too — the diff showed them', async () => {
+    const repo = await initRepo()
+    const { app, start } = await makeHarness(repo)
+    const run = await start()
+    await writeFile(join(run.worktreeDir!, 'extra.txt'), 'uncommitted\n')
+
+    const res = await app.inject({ method: 'POST', url: `/api/runs/${run.runId}/merge` })
+    expect(res.statusCode).toBe(200)
+    const merged = await exec('git', ['-C', repo, 'show', 'HEAD:extra.txt'])
+    expect(merged.stdout).toBe('uncommitted\n')
+    await app.close()
+  })
+
   it('aborts a conflicting merge, leaving the checkout clean and the worktree kept', async () => {
     const repo = await initRepo()
     const { app, dispatcher, start } = await makeHarness(repo)

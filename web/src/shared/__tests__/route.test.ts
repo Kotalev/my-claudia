@@ -17,6 +17,15 @@ describe('parseRoute — the shapes the app produces', () => {
   it('reads the overview', () => {
     expect(parseRoute('/')).toEqual({ projectId: null, sessionId: null })
   })
+
+  it('reads the history screen', () => {
+    expect(parseRoute('/history')).toEqual({ projectId: null, sessionId: null, history: true })
+  })
+
+  it('reads the digest screen, with or without trailing junk', () => {
+    expect(parseRoute('/digest')).toEqual({ projectId: null, sessionId: null, digest: true })
+    expect(parseRoute('/digest/junk')).toEqual({ projectId: null, sessionId: null, digest: true })
+  })
 })
 
 describe('parseRoute — malformed input degrades, never throws', () => {
@@ -52,6 +61,8 @@ describe('pathFor', () => {
     expect(pathFor({ projectId: 'abc', sessionId: null })).toBe('/p/abc')
     expect(pathFor({ projectId: null, sessionId: 's1' })).toBe('/s/s1')
     expect(pathFor({ projectId: 'abc', sessionId: 's1' })).toBe('/p/abc/s/s1')
+    expect(pathFor({ projectId: null, sessionId: null, history: true })).toBe('/history')
+    expect(pathFor({ projectId: null, sessionId: null, digest: true })).toBe('/digest')
   })
 })
 

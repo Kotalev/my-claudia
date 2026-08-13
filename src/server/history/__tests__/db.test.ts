@@ -19,6 +19,7 @@ function scheduleJob(over: Partial<ScheduleJob> = {}): ScheduleJob {
     sessionId: 'sess-1', prompt: 'continue',
     runAt: '2026-08-14T10:00:00.000Z', createdAt: '2026-08-13T10:00:00.000Z',
     note: 'auto-continue after five_hour',
+    repeatEveryMs: null, loopId: null, iteration: 1, maxIterations: null, stopAfterFailures: null,
     ...over,
   }
 }
@@ -29,7 +30,8 @@ function runRow(over: Partial<RunRow> = {}): RunRow {
     status: 'succeeded', isolation: 'worktree', branch: 'mc/run-1',
     merged: false, discarded: false,
     startedAt: '2026-08-13T10:00:00.000Z', endedAt: '2026-08-13T10:05:00.000Z',
-    costUsd: 1.23, numTurns: 7, exitCode: 0,
+    costUsd: 1.23, numTurns: 7, exitCode: 0, loopId: null, baseCommit: 'abc123',
+    prompt: null, outputTail: null,
     ...over,
   }
 }
@@ -168,6 +170,93 @@ describe('openHistoryDb', () => {
     expect(console.warn).toHaveBeenCalledOnce()
   })
 
+  it('lists unresolved worktree runs — ended, worktree, unmerged, undiscarded, with a branch', async () => {
+    const db = await openAt()
+    db.upsertRun(runRow({ runId: 'pending', startedAt: '2026-08-10T00:00:00Z' }))
+    db.upsertRun(runRow({ runId: 'pending-newer', startedAt: '2026-08-12T00:00:00Z' }))
+    db.upsertRun(runRow({ runId: 'still-going', endedAt: null, status: 'running' }))
+    db.upsertRun(runRow({ runId: 'merged', merged: true }))
+    db.upsertRun(runRow({ runId: 'discarded', discarded: true }))
+    db.upsertRun(runRow({ runId: 'in-place', isolation: 'in-place', branch: null }))
+    expect(db.listUnresolvedWorktreeRuns().map(r => r.runId)).toEqual(['pending-newer', 'pending'])
+  })
+
+  it('markRunResolved flips the flag and drops the run from the unresolved list', async () => {
+    const db = await openAt()
+    db.upsertRun(runRow({ runId: 'a' }))
+    db.upsertRun(runRow({ runId: 'b' }))
+    db.markRunResolved('a', 'merged')
+    db.markRunResolved('b', 'discarded')
+    db.markRunResolved('no-such-run', 'merged')   // unknown id is a no-op, not an error
+    expect(db.listUnresolvedWorktreeRuns()).toEqual([])
+    const byId = new Map(db.listRuns().map(r => [r.runId, r]))
+    expect(byId.get('a')?.merged).toBe(true)
+    expect(byId.get('b')?.discarded).toBe(true)
+  })
+
+  it('round-trips prompt and output tail, then finds the run by either', async () => {
+    const db = await openAt()
+    db.upsertRun(runRow({ prompt: 'fix the flaky watcher test', outputTail: 'All 12 tests passed.' }))
+    expect(db.listRuns()[0]).toMatchObject({
+      prompt: 'fix the flaky watcher test', outputTail: 'All 12 tests passed.',
+    })
+    expect(db.searchRuns('flaky watcher').map(r => r.runId)).toEqual(['run-1'])
+    expect(db.searchRuns('tests passed').map(r => r.runId)).toEqual(['run-1'])
+  })
+
+  it('a later upsert with null prompt/tail keeps the stored text (merged flip re-record)', async () => {
+    const db = await openAt()
+    db.upsertRun(runRow({ prompt: 'do the thing', outputTail: 'done' }))
+    db.upsertRun(runRow({ merged: true, prompt: null, outputTail: null }))
+    const run = db.listRuns()[0]
+    expect(run?.merged).toBe(true)
+    expect(run?.prompt).toBe('do the thing')
+    expect(run?.outputTail).toBe('done')
+  })
+
+  it('searches task id and branch too, case-insensitively, newest first', async () => {
+    const db = await openAt()
+    db.upsertRun(runRow({ runId: 'a', taskId: 'T-101', branch: 'mc/run-a', startedAt: '2026-08-01T00:00:00Z' }))
+    db.upsertRun(runRow({ runId: 'b', taskId: 'T-102', branch: 'mc/feature-x', startedAt: '2026-08-02T00:00:00Z' }))
+    expect(db.searchRuns('t-10').map(r => r.runId)).toEqual(['b', 'a'])
+    expect(db.searchRuns('FEATURE-X').map(r => r.runId)).toEqual(['b'])
+    expect(db.searchRuns('nothing-matches')).toEqual([])
+  })
+
+  it('search filters by project and honours the limit', async () => {
+    const db = await openAt()
+    db.upsertRun(runRow({ runId: 'a', projectId: 'p1', prompt: 'shared word', startedAt: '2026-08-01T00:00:00Z' }))
+    db.upsertRun(runRow({ runId: 'b', projectId: 'p2', prompt: 'shared word', startedAt: '2026-08-02T00:00:00Z' }))
+    expect(db.searchRuns('shared', { projectId: 'p1' }).map(r => r.runId)).toEqual(['a'])
+    expect(db.searchRuns('shared', { limit: 1 }).map(r => r.runId)).toEqual(['b'])
+  })
+
+  it('treats %, _ and \\ in the query as literal characters', async () => {
+    const db = await openAt()
+    db.upsertRun(runRow({ runId: 'pct', prompt: 'usage hit 100% today', startedAt: '2026-08-01T00:00:00Z' }))
+    db.upsertRun(runRow({ runId: 'under', prompt: 'rename snake_case field', startedAt: '2026-08-02T00:00:00Z' }))
+    db.upsertRun(runRow({ runId: 'slash', prompt: String.raw`path C:\temp broke`, startedAt: '2026-08-03T00:00:00Z' }))
+    expect(db.searchRuns('100%').map(r => r.runId)).toEqual(['pct'])
+    expect(db.searchRuns('snake_case').map(r => r.runId)).toEqual(['under'])
+    // A bare % must not match everything.
+    expect(db.searchRuns('%').map(r => r.runId)).toEqual(['pct'])
+    expect(db.searchRuns('_').map(r => r.runId)).toEqual(['under'])
+    expect(db.searchRuns(String.raw`C:\temp`).map(r => r.runId)).toEqual(['slash'])
+  })
+
+  it('an empty or whitespace query finds nothing', async () => {
+    const db = await openAt()
+    db.upsertRun(runRow({ prompt: 'anything' }))
+    expect(db.searchRuns('')).toEqual([])
+    expect(db.searchRuns('   ')).toEqual([])
+  })
+
+  it('round-trips a null baseCommit (rows recorded before migration 6)', async () => {
+    const db = await openAt()
+    db.upsertRun(runRow({ baseCommit: null }))
+    expect(db.listRuns()[0]?.baseCommit).toBeNull()
+  })
+
   it('DISABLED_HISTORY is safe to poke from every side', () => {
     expect(DISABLED_HISTORY.enabled).toBe(false)
     DISABLED_HISTORY.upsertRun(runRow())
@@ -176,8 +265,11 @@ describe('openHistoryDb', () => {
     DISABLED_HISTORY.deleteSchedule('job-1')
     DISABLED_HISTORY.insertTemplate(template())
     DISABLED_HISTORY.deleteTemplate('tpl-1')
+    DISABLED_HISTORY.markRunResolved('run-1', 'merged')
     DISABLED_HISTORY.close()
     expect(DISABLED_HISTORY.listRuns()).toEqual([])
+    expect(DISABLED_HISTORY.searchRuns('anything')).toEqual([])
+    expect(DISABLED_HISTORY.listUnresolvedWorktreeRuns()).toEqual([])
     expect(DISABLED_HISTORY.listSchedules()).toEqual([])
     expect(DISABLED_HISTORY.listTemplates()).toEqual([])
   })

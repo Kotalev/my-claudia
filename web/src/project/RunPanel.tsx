@@ -1,10 +1,13 @@
 import { ChevronRight, Clock, GitBranch, RotateCcw, Square } from 'lucide-react'
 import { money } from '../shared/usage-format.js'
-import { clockTime } from '../shared/format.js'
+import { clockTime, elapsed } from '../shared/format.js'
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '../shared/api.js'
-import type { RunDiff, RunHandle, RunStatus } from '../shared/types.js'
+import { isEnabled, permission, supported } from '../shared/notifications.js'
+import type { RunHandle, RunStatus } from '../shared/types.js'
 import { FOCUS_RING } from '../shared/focus.js'
+import { useClockTick } from '../shared/useClockTick.js'
+import { ACTION_BUTTON, ReviewControls } from './ReviewControls.js'
 
 const STATUS_TEXT: Record<RunStatus, string> = {
   'running': 'text-work',
@@ -14,19 +17,6 @@ const STATUS_TEXT: Record<RunStatus, string> = {
   'cancelled': 'text-alarm',
 }
 
-/** Tint a raw patch line with the existing tokens: additions work-green, deletions danger-red. */
-function patchLineClass(line: string): string {
-  if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('diff ') || line.startsWith('@@')) {
-    return 'text-faint'
-  }
-  if (line.startsWith('+')) return 'text-work'
-  if (line.startsWith('-')) return 'text-danger'
-  return 'text-muted'
-}
-
-const ACTION_BUTTON = `inline-flex items-center gap-1.5 rounded-[5px] border border-neutral-700 px-2 py-1
-  text-[11px] text-faint disabled:opacity-50 ${FOCUS_RING}`
-
 /** What names the run in the header: its task id, or what kind of taskless run it is. */
 function runLabel(run: RunHandle): string {
   if (run.taskId) return run.taskId
@@ -34,92 +24,6 @@ function runLabel(run: RunHandle): string {
     return run.sessionId ? `resume ${run.sessionId.slice(0, 8)}` : 'resume'
   }
   return 'prompt'
-}
-
-/**
- * Diff review for a finished worktree run: the file list and patch behind a
- * toggle, plus merge/discard. A 409 from either endpoint (dirty checkout,
- * merge conflict) surfaces inline; success arrives as a run update over the
- * socket, which flips the run to merged/discarded and retires these controls.
- */
-function WorktreeReview({ run }: { run: RunHandle }) {
-  const [diff, setDiff] = useState<RunDiff | null>(null)
-  const [showDiff, setShowDiff] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  const toggleDiff = async (): Promise<void> => {
-    if (showDiff) { setShowDiff(false); return }
-    setShowDiff(true)
-    if (diff) return
-    const res = await apiFetch(`/api/runs/${run.runId}/diff`)
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}))
-      setError(body.error ?? `diff unavailable (${res.status})`)
-      setShowDiff(false)
-      return
-    }
-    setDiff(await res.json())
-  }
-
-  const act = async (action: 'merge' | 'discard'): Promise<void> => {
-    setBusy(true)
-    setError(null)
-    const res = await apiFetch(`/api/runs/${run.runId}/${action}`, { method: 'POST' })
-    setBusy(false)
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}))
-      setError(body.error ?? `${action} failed (${res.status})`)
-      return
-    }
-    // The updated run handle arrives over the socket; the stale diff must not
-    // outlive the worktree it came from.
-    setDiff(null)
-    setShowDiff(false)
-  }
-
-  return (
-    <div className="mt-2 space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <button onClick={() => void toggleDiff()} className={ACTION_BUTTON}>
-          {showDiff ? 'hide diff' : 'view diff'}
-        </button>
-        <button onClick={() => void act('merge')} disabled={busy} className={`${ACTION_BUTTON} hover:text-work`}>
-          merge
-        </button>
-        <button onClick={() => void act('discard')} disabled={busy} className={`${ACTION_BUTTON} hover:text-danger`}>
-          discard
-        </button>
-      </div>
-      {error && (
-        <p data-testid="run-review-error" className="font-mono text-[11.5px] break-words text-danger">{error}</p>
-      )}
-      {showDiff && diff && (
-        <div data-testid="run-diff" className="space-y-2">
-          {diff.files.length === 0
-            ? <p className="font-mono text-[11.5px] text-faint">No changes in this run&apos;s worktree.</p>
-            : (
-                <ul className="space-y-0.5 font-mono text-[11.5px]">
-                  {diff.files.map(f => (
-                    <li key={f.path} className="flex flex-wrap gap-x-3">
-                      <span className="min-w-0 break-all text-muted">{f.path}</span>
-                      <span className="text-work">+{f.additions}</span>
-                      <span className="text-danger">−{f.deletions}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-          {diff.patch && (
-            <pre className="max-h-80 overflow-auto overflow-x-auto rounded-[7px] bg-neutral-950 px-3.5 py-3 font-mono text-[11.5px] leading-[1.6] whitespace-pre">
-              {diff.patch.split('\n').map((line, i) => (
-                <span key={i} className={patchLineClass(line)}>{line}{'\n'}</span>
-              ))}
-            </pre>
-          )}
-        </div>
-      )}
-    </div>
-  )
 }
 
 /**
@@ -204,6 +108,26 @@ export function RunPanel(
   const log = useRef<HTMLPreElement>(null)
   const running = run.status === 'running'
   const awaiting = run.status === 'awaiting-input'
+  // The watchdog badges show durations ("no output 6m") that must keep aging
+  // between socket messages — a stalled run is exactly the one not sending any.
+  useClockTick()
+
+  // Desktop notification on the stalled transition, under the same opt-in and
+  // permission the session 'waiting' notifications use. The tag makes repeat
+  // stalls of one run replace, not stack.
+  const stalledNow = running && run.stalled === true
+  const runRef = useRef(run)
+  runRef.current = run
+  useEffect(() => {
+    if (!stalledNow) return
+    if (!supported() || !isEnabled() || permission() !== 'granted') return
+    const r = runRef.current
+    const n = new Notification(`run ${runLabel(r)} looks stalled`, {
+      body: `no output since ${clockTime(r.lastOutputAt ?? r.startedAt)}`,
+      tag: `run-stall-${r.runId}`,
+    })
+    n.onclick = () => { window.focus(); n.close() }
+  }, [stalledNow])
 
   // The old sentinel `<div>` inside the <pre> called scrollIntoView() on every
   // chunk, which scrolls *all* scrollable ancestors including the window — a
@@ -238,6 +162,17 @@ export function RunPanel(
         {running ? 'run streaming' : awaiting ? 'awaiting input' : run.status}
       </span>
       <span className="text-muted">{runLabel(run)} · claude -p</span>
+      {stalledNow && (
+        <span data-testid="run-stalled" className="inline-flex shrink-0 items-center gap-1 text-alarm">
+          <Clock aria-hidden="true" className="size-3" />
+          no output {elapsed(run.lastOutputAt ?? run.startedAt)}
+        </span>
+      )}
+      {run.endedAt === null && run.longRunning && (
+        <span data-testid="run-long-running" className="shrink-0 text-dim">
+          running {elapsed(run.startedAt)}
+        </span>
+      )}
       {run.branch && (
         <span data-testid="run-branch" className="inline-flex min-w-0 items-center gap-1 text-dim">
           <GitBranch aria-hidden="true" className="size-3 shrink-0" />
@@ -298,7 +233,7 @@ export function RunPanel(
       </pre>
       {(running || awaiting) && <SteerControls run={run} />}
       {run.endedAt !== null && run.isolation === 'worktree' && run.diffAvailable && (
-        <WorktreeReview run={run} />
+        <ReviewControls runId={run.runId} />
       )}
     </div>
   )

@@ -31,10 +31,19 @@ export interface DispatcherOptions {
   idleMs?: number
   /** Where linked worktrees live — outside every project tree. */
   worktreesRoot?: string
+  /** Silence on stdout+stderr while 'running' before the stalled flag is raised. */
+  stallAfterMs?: number
+  /** Total lifetime before the longRunning flag is raised. Advisory — the hard timeout still kills. */
+  warnAfterMs?: number
+  /** How often the watchdog sweeps live runs. Tests shrink it; nothing else should. */
+  watchdogIntervalMs?: number
 }
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
 const DEFAULT_IDLE_MS = 10 * 60 * 1000
+const DEFAULT_STALL_MS = 5 * 60 * 1000
+const DEFAULT_WARN_MS = 30 * 60 * 1000
+const DEFAULT_WATCHDOG_INTERVAL_MS = 30_000
 
 export class Dispatcher extends EventEmitter {
   #runs = new Map<string, Run>()
@@ -43,6 +52,9 @@ export class Dispatcher extends EventEmitter {
   #timeoutMs: number
   #idleMs: number
   #worktreesRoot: string
+  #stallAfterMs: number
+  #warnAfterMs: number
+  #watchdog: NodeJS.Timeout
 
   constructor(opts: DispatcherOptions = {}) {
     super()
@@ -51,6 +63,13 @@ export class Dispatcher extends EventEmitter {
     this.#timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
     this.#idleMs = opts.idleMs ?? DEFAULT_IDLE_MS
     this.#worktreesRoot = opts.worktreesRoot ?? join(process.cwd(), '.worktrees')
+    this.#stallAfterMs = opts.stallAfterMs ?? DEFAULT_STALL_MS
+    this.#warnAfterMs = opts.warnAfterMs ?? DEFAULT_WARN_MS
+    // One interval for every run, unref'd so an idle dispatcher never holds
+    // the process open. Per-run timers would be cancelled/re-armed on every
+    // output chunk; a sweep just reads timestamps.
+    this.#watchdog = setInterval(() => this.#sweep(), opts.watchdogIntervalMs ?? DEFAULT_WATCHDOG_INTERVAL_MS)
+    this.#watchdog.unref()
   }
 
   list(): RunHandle[] {
@@ -141,6 +160,10 @@ export class Dispatcher extends EventEmitter {
       merged: false,
       discarded: false,
       lastRateLimit: null,
+      loopId: input.loopId ?? null,
+      lastOutputAt: new Date().toISOString(),
+      stalled: false,
+      longRunning: false,
       input: { ...input },
       child,
       buffer: '',
@@ -156,7 +179,10 @@ export class Dispatcher extends EventEmitter {
     child.stdout?.setEncoding('utf8')
     child.stdout?.on('data', (chunk: string) => this.#consume(run, chunk))
     child.stderr?.setEncoding('utf8')
-    child.stderr?.on('data', (chunk: string) => this.emit('output', { runId, chunk }))
+    child.stderr?.on('data', (chunk: string) => {
+      this.#recordOutput(run)
+      this.emit('output', { runId, chunk })
+    })
 
     child.on('error', () => this.#finish(run, null, 'failed'))
     child.on('close', code => {
@@ -228,6 +254,7 @@ export class Dispatcher extends EventEmitter {
    * to be the first line, so every line is checked until one is found.
    */
   #consume(run: Run, chunk: string): void {
+    this.#recordOutput(run)
     run.buffer += chunk
     const lines = run.buffer.split('\n')
     run.buffer = lines.pop() ?? ''
@@ -279,6 +306,38 @@ export class Dispatcher extends EventEmitter {
     const line = JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } })
     run.child.stdin?.write(`${line}\n`)
     run.turnsInFlight += 1
+  }
+
+  /** Any child stdout/stderr proves the run is alive: refresh the clock and withdraw a stalled flag. */
+  #recordOutput(run: Run): void {
+    run.lastOutputAt = new Date().toISOString()
+    if (run.stalled) {
+      run.stalled = false
+      this.#update(run)
+    }
+  }
+
+  /**
+   * The watchdog pass. Advisory only — neither flag touches the child; the
+   * hard timeout in `start` keeps the killing job. 'awaiting-input' runs are
+   * never stalled: they are waiting for us, not the other way round.
+   */
+  #sweep(): void {
+    const now = Date.now()
+    for (const run of this.#runs.values()) {
+      if (run.endedAt !== null) continue
+      let changed = false
+      const quietSince = Date.parse(run.lastOutputAt ?? run.startedAt)
+      if (run.status === 'running' && !run.stalled && now - quietSince >= this.#stallAfterMs) {
+        run.stalled = true
+        changed = true
+      }
+      if (!run.longRunning && now - Date.parse(run.startedAt) >= this.#warnAfterMs) {
+        run.longRunning = true   // one-way: a run does not stop having run long
+        changed = true
+      }
+      if (changed) this.#update(run)
+    }
   }
 
   #clearIdle(run: Run): void {

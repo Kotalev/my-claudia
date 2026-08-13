@@ -1,15 +1,20 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { mkdtempSync } from 'node:fs'
 import { Dispatcher, type RunHandle } from '../index.js'
 import { initRepo } from './init-repo.js'
 
 const FAKE = fileURLToPath(new URL('../../../../test/fixtures/fake-claude.mjs', import.meta.url))
+// Never the default (cwd/.worktrees): a git-repo dispatch here must not drop
+// its worktree into the real repo a dashboard may be serving right now.
+const WT_ROOT = mkdtempSync(join(tmpdir(), 'mc-dispatcher-wt-'))
 
 // A short idleMs: after the fake answers the prompt the run sits in
 // 'awaiting-input', and these lifecycle tests want it to conclude on its own.
 function makeDispatcher(timeoutMs = 5000, idleMs = 150) {
-  return new Dispatcher({ claudeBin: process.execPath, extraArgs: [FAKE], timeoutMs, idleMs })
+  return new Dispatcher({ claudeBin: process.execPath, extraArgs: [FAKE], timeoutMs, idleMs, worktreesRoot: WT_ROOT })
 }
 
 const input = { projectId: 'p1', projectPath: tmpdir(), taskId: 'T-001', prompt: 'do the thing' }

@@ -32,14 +32,18 @@ import { SpendLedger } from './usage/spend-ledger.js'
 import { openHistoryDb } from './history/db.js'
 import { HistoryRecorder } from './history/recorder.js'
 import { registerHistoryRoutes } from './routes/history.js'
+import { registerDigestRoutes } from './routes/digest.js'
+import { listPendingReviews, worktreeKeepSet } from './reviews/index.js'
 import { Scheduler } from './scheduler/index.js'
+import { LoopController } from './scheduler/loop.js'
+import { deferLoopIteration, DeferralTracker } from './scheduler/limit-defer.js'
 import { registerScheduleRoutes } from './routes/schedules.js'
 import { registerTemplateRoutes } from './routes/templates.js'
 import { buildTaskPrompt } from './dispatcher/prompt.js'
 import { readAccountEmail } from './usage/account.js'
 import { isCountable } from './watcher/usage.js'
 import { projectsDir } from '../shared/config.js'
-import type { AccountInfo, ProjectRecord, QueuedDispatch, RunHandle, ScheduleJob } from '../shared/types.js'
+import type { AccountInfo, PendingReview, ProjectRecord, QueuedDispatch, RunHandle, ScheduleJob } from '../shared/types.js'
 
 /** Absolute path to the forwarder, resolved once — a project's settings must not hold a relative path. */
 const HOOK_SCRIPT_PATH = fileURLToPath(new URL('../../scripts/hook-post.sh', import.meta.url))
@@ -62,6 +66,9 @@ declare module 'fastify' {
 export async function buildServer(
   storePath = join(process.cwd(), 'projects.json'),
   tokenPath = join(process.cwd(), '.auth-token'),
+  // Overridable so a test server can never prune the real .worktrees or open
+  // the real history db of a dashboard running beside the test run.
+  paths: { worktreesRoot?: string; historyDbPath?: string } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: 'info' },
@@ -76,12 +83,9 @@ export async function buildServer(
   const watcher = new SessionWatcher(registry, store)
   await watcher.start()
 
-  const dispatcher = new Dispatcher()
+  const worktreesRoot = paths.worktreesRoot ?? join(process.cwd(), '.worktrees')
+  const dispatcher = new Dispatcher({ worktreesRoot })
   const dispatchQueue = new DispatchQueue(dispatcher)
-  // Runs are in-memory only, so after a restart every directory under
-  // .worktrees is an orphan from a previous process. Prune before any dispatch
-  // can create a fresh one.
-  await pruneStaleWorktrees(join(process.cwd(), '.worktrees'), new Set(dispatcher.list().map(r => r.runId)))
 
   // Claude Code's own live-session registry. Started before the hub so the first
   // snapshot already carries the running processes rather than an empty band.
@@ -106,11 +110,31 @@ export async function buildServer(
 
   // Persistent history. Degrades to a disabled no-op handle on Node < 22.5
   // (no node:sqlite) or an unreadable db file — never fatal.
-  const historyDb = await openHistoryDb(join(process.cwd(), 'mission-control.db'))
+  const historyDb = await openHistoryDb(paths.historyDbPath ?? join(process.cwd(), 'mission-control.db'))
   const historyRecorder = new HistoryRecorder(historyDb)
   historyRecorder.attach(dispatcher)
 
+  // Runs are in-memory only, so after a restart the directories under
+  // .worktrees are orphans from a previous process — EXCEPT the ones behind
+  // unresolved worktree runs in the history db, whose unreviewed (possibly
+  // uncommitted) changes must survive. Prune before any dispatch can create a
+  // fresh one; with history disabled there is nothing to consult, so all go.
+  await pruneStaleWorktrees(worktreesRoot, worktreeKeepSet(dispatcher.list(), historyDb))
+
+  // The review backlog is cached: the snapshot callback is synchronous, and
+  // computing the list means asking git which branches still exist.
+  const computeReviews = (): Promise<PendingReview[]> => listPendingReviews({
+    runs: dispatcher.list(),
+    history: historyDb,
+    projectPath: id => registry.byId(id)?.path,
+  })
+  let cachedReviews: PendingReview[] = await computeReviews()
+
   const scheduler = new Scheduler(historyDb)
+  const getFiveHour = () => store.planLimits()?.fiveHour ?? null
+  // Loop schedules: follows a fired loop job's run (or queued dispatch) to its
+  // end and creates the next iteration's job — iterations never overlap.
+  const loops = new LoopController(scheduler, dispatcher, dispatchQueue, { getFiveHour })
 
   // The account file changes only on login/logout, so a lazy re-read every few
   // minutes is enough — and never on the broadcast path.
@@ -135,10 +159,18 @@ export async function buildServer(
     planLimits: store.planLimits(),
     spend: spendLedger.summary(),
     account: accountInfo(),
+    runs: dispatcher.list(),
     permissions: permissionBroker.list(),
     schedules: scheduler.list(),
     queue: dispatchQueue.list(),
+    reviews: cachedReviews,
   }))
+  const refreshReviews = (): void => {
+    void computeReviews().then(reviews => {
+      cachedReviews = reviews
+      hub.broadcast({ type: 'review.updated', reviews })
+    }).catch(err => app.log.warn(`review list refresh failed: ${(err as Error).message}`))
+  }
   dispatchQueue.on('changed', (queue: QueuedDispatch[]) =>
     hub.broadcast({ type: 'queue.updated', queue }))
   permissionBroker.onRequested = request =>
@@ -185,7 +217,12 @@ export async function buildServer(
   void agentsPoller.start()
   dispatcher.on('output', ({ runId, chunk }: { runId: string; chunk: string }) =>
     hub.broadcast({ type: 'dispatch.output', runId, chunk }))
-  dispatcher.on('update', run => hub.broadcast({ type: 'dispatch.updated', run }))
+  dispatcher.on('update', (run: RunHandle) => {
+    hub.broadcast({ type: 'dispatch.updated', run })
+    // A run ending, merging or discarding all re-emit the ended handle — each
+    // changes what is pending review.
+    if (run.endedAt !== null) refreshReviews()
+  })
   tasksWatcher.on('tasks', ({ projectId, doc }: TasksChange) => {
     cachedDocs = { ...cachedDocs, [projectId]: doc }
     hub.broadcast({ type: 'task.updated', projectId, doc })
@@ -244,10 +281,17 @@ export async function buildServer(
   }
 
   registerTaskRoutes(app, registry, publishTasks)
-  registerDispatchRoutes(app, registry, dispatcher, dispatchQueue, store, publishTasks)
+  registerDispatchRoutes(app, registry, dispatcher, dispatchQueue, store, publishTasks,
+    historyDb, worktreesRoot, refreshReviews)
   registerHistoryRoutes(app, historyDb)
+  registerDigestRoutes(app, {
+    history: historyDb,
+    liveRuns: () => dispatcher.list(),
+    pendingReviews: () => cachedReviews,
+    stoppedLoops: () => loops.stopped(),
+  })
   registerTemplateRoutes(app, historyDb)
-  registerScheduleRoutes(app, registry, scheduler)
+  registerScheduleRoutes(app, registry, scheduler, loops)
   scheduler.on('changed', (schedules: ScheduleJob[]) =>
     hub.broadcast({ type: 'schedule.updated', schedules }))
 
@@ -257,10 +301,12 @@ export async function buildServer(
   const RESUME_RETRY_MS = 5 * 60_000
   const MAX_RESUME_ATTEMPTS = 6
   const resumeAttempts = new Map<string, number>()
+  const loopDeferrals = new DeferralTracker()
   const executeSchedule = async (job: ScheduleJob): Promise<void> => {
     const project = registry.byId(job.projectId)
     if (!project) {
       app.log.warn(`schedule ${job.id} dropped: project ${job.projectId} is no longer registered`)
+      loops.abort(job, `project ${job.projectId} is no longer registered`)
       return
     }
     if (job.kind === 'resume-run' && job.sessionId !== null) {
@@ -295,18 +341,48 @@ export async function buildServer(
       const task = doc.tasks.find(t => t.id === job.taskId)
       if (!task) {
         app.log.warn(`schedule ${job.id} dropped: task ${job.taskId} no longer exists in ${project.name}`)
+        loops.abort(job, `task ${job.taskId} no longer exists`)
         return
       }
+      // A loop iteration facing a nearly exhausted 5h window is postponed —
+      // re-added as the same iteration past the reset, capped so a stuck
+      // window cannot defer forever. One-shots fire as the human scheduled.
+      if (job.loopId !== null) {
+        const shift = deferLoopIteration(job, getFiveHour(), Date.now())
+        if (shift !== null && loopDeferrals.defer(job.loopId)) {
+          scheduler.add({
+            kind: job.kind, projectId: job.projectId, taskId: job.taskId,
+            sessionId: job.sessionId, prompt: job.prompt,
+            runAt: shift.runAt, note: shift.note,
+            repeatEveryMs: job.repeatEveryMs, loopId: job.loopId,
+            iteration: job.iteration,
+            maxIterations: job.maxIterations, stopAfterFailures: job.stopAfterFailures,
+          })
+          return
+        }
+      }
       try {
-        await dispatcher.start({
-          projectId: project.id, projectPath: project.path, taskId: task.id, prompt: buildTaskPrompt(task),
-        })
+        const input = {
+          projectId: project.id, projectPath: project.path, taskId: task.id,
+          prompt: buildTaskPrompt(task), loopId: job.loopId,
+        }
+        if (job.loopId !== null) {
+          // A loop iteration goes through the queue so a busy project delays it
+          // rather than killing the loop; the controller follows it from there.
+          const result = await dispatchQueue.start(input)
+          loopDeferrals.dispatched(job.loopId)
+          if ('run' in result) loops.started(job, result.run.runId)
+          else loops.queued(job, result.queued.queueId)
+        } else {
+          await dispatcher.start(input)
+        }
         if (task.status === 'todo') {
           await taskStore.updateTask(task.id, { status: 'in-progress' })
           publishTasks(project.id)
         }
       } catch (err) {
         app.log.warn(`scheduled dispatch of ${job.taskId} failed: ${(err as Error).message}`)
+        loops.startFailed(job)
       }
     } else {
       app.log.warn(`schedule ${job.id} dropped: unusable job (kind ${job.kind})`)
@@ -367,7 +443,7 @@ export async function buildServer(
 
   const alerts = startAlerts({
     getSessions: () => store.all(),
-    getFiveHour: () => store.planLimits()?.fiveHour ?? null,
+    getFiveHour,
   })
 
   // In production the API also serves the built UI, so `npm start` is the whole

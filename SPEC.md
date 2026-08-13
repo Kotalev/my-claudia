@@ -473,6 +473,18 @@ history db (`schedules` table, migration 3). On start, jobs overdue < 24h fire
 immediately; older ones are dropped with a log line. Without SQLite the
 scheduler runs fully in memory and jobs die with the process.
 
+### 8.13 Rate-limit-aware loops (T-071)
+
+A loop iteration must not fire into a nearly exhausted 5h window. At fire time
+(and again when the LoopController schedules the next iteration) the current
+`planLimits().fiveHour` is consulted: at ≥ 90% used — the same threshold the
+limit alert fires at — the iteration is postponed to `resetsAt + 60s`
+(now + 30 min when no usable reset time), re-added as the *same* iteration
+with the note `deferred: 5h window at NN%`. At most 3 consecutive deferrals
+per loop (reset by a real dispatch); past the cap it dispatches anyway and
+auto-continue (8.12) picks up the rate-limited corpse. One-shot schedules are
+never deferred — a human picked that exact time.
+
 ## 7. Risks
 
 | Risk | Mitigation |

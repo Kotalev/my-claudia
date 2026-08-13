@@ -37,9 +37,9 @@ describe('parseAgentsJson', () => {
     expect(out.map(a => a.sessionId)).toEqual(['good'])
   })
 
-  it('treats an unknown kind as interactive and an unknown state as idle', () => {
+  it('treats an unknown kind as interactive and an unknown state as no status', () => {
     const [a] = parseAgentsJson(JSON.stringify([{ sessionId: 's', kind: 'something-new', state: 'ruminating' }]))
-    expect(a).toMatchObject({ kind: 'interactive', state: 'idle' })
+    expect(a).toMatchObject({ kind: 'interactive', state: null })
   })
 
   it('handles an empty list', () => {

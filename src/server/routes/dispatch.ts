@@ -1,11 +1,15 @@
 import type { FastifyInstance } from 'fastify'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { TaskStore } from '../../tasks/store.js'
 import type { ProjectRegistry } from '../registry.js'
 import type { SessionStore } from '../watcher/session-store.js'
 import type { Dispatcher } from '../dispatcher/index.js'
 import type { DispatchQueue } from '../dispatcher/queue.js'
 import { buildTaskPrompt } from '../dispatcher/prompt.js'
-import { collectDiff, git, removeWorktree } from '../dispatcher/worktree.js'
+import { collectDiff, commitPendingChanges, git, parseNumstat, removeWorktree } from '../dispatcher/worktree.js'
+import { DISABLED_HISTORY, type HistoryDb, type RunRow } from '../history/db.js'
+import { listPendingReviews } from '../reviews/index.js'
 import type { RunHandle } from '../../shared/types.js'
 
 /** First few lines of git's complaint — enough for a 409 reason, not a wall of text. */
@@ -27,8 +31,26 @@ export function registerDispatchRoutes(
   queue: DispatchQueue,
   sessions: SessionStore,
   onTasksChanged: (projectId: string) => void,
+  // Review-queue wiring, defaulted so pre-T-069 callers (and tests without a
+  // db) keep exactly the old behaviour: no history rows, so no fallbacks.
+  history: HistoryDb = DISABLED_HISTORY,
+  worktreesRoot: string = join(process.cwd(), '.worktrees'),
+  onReviewsChanged: () => void = () => {},
 ): void {
+  /** The unresolved history row behind a runId the dispatcher does not know. */
+  const historyRow = (runId: string): (RunRow & { branch: string }) | undefined =>
+    history.listUnresolvedWorktreeRuns()
+      .find((r): r is RunRow & { branch: string } => r.runId === runId && r.branch !== null)
+
   app.get('/api/runs', async () => ({ runs: dispatcher.list() }))
+
+  app.get('/api/reviews', async () => ({
+    reviews: await listPendingReviews({
+      runs: dispatcher.list(),
+      history,
+      projectPath: id => registry.byId(id)?.path,
+    }),
+  }))
 
   app.get('/api/queue', async () => ({ queue: queue.list() }))
 
@@ -171,7 +193,40 @@ export function registerDispatchRoutes(
 
   app.get<{ Params: { runId: string } }>('/api/runs/:runId/diff', async (req, reply) => {
     const run = dispatcher.get(req.params.runId)
-    if (!run) return reply.code(404).send({ error: 'unknown run' })
+    if (!run) {
+      // A previous server process's run: only its history row and branch are
+      // left. Diff against the surviving worktree when the prune spared it,
+      // else base..branch in the project checkout (committed work only —
+      // uncommitted changes died with the worktree).
+      const row = historyRow(req.params.runId)
+      if (!row) return reply.code(404).send({ error: 'unknown run' })
+      const project = registry.byId(row.projectId)
+      if (!project) return reply.code(404).send({ error: 'unknown project' })
+      const dir = join(worktreesRoot, row.runId)
+      if (existsSync(dir)) {
+        const { files, patch } = await collectDiff(dir, row.baseCommit)
+        return { branch: row.branch, files, patch }
+      }
+      const verify = await git(['-C', project.path, 'rev-parse', '--verify', '--quiet', `refs/heads/${row.branch}`])
+      if (verify.code !== 0) {
+        return reply.code(409).send({ error: `branch ${row.branch} no longer exists — nothing left to review` })
+      }
+      let base = row.baseCommit
+      if (base === null || (await git(['-C', project.path, 'rev-parse', '--verify', `${base}^{commit}`])).code !== 0) {
+        const mb = await git(['-C', project.path, 'merge-base', 'HEAD', row.branch])
+        base = mb.code === 0 && mb.stdout.trim() !== '' ? mb.stdout.trim() : null
+      }
+      if (base === null) return { branch: row.branch, files: [], patch: '' }
+      const [patchRes, numstat] = await Promise.all([
+        git(['-C', project.path, 'diff', `${base}..${row.branch}`]),
+        git(['-C', project.path, 'diff', `${base}..${row.branch}`, '--numstat']),
+      ])
+      return {
+        branch: row.branch,
+        files: parseNumstat(numstat.stdout),
+        patch: patchRes.code === 0 ? patchRes.stdout : '',
+      }
+    }
     if (!worktreeLive(run)) {
       return reply.code(409).send({ error: 'no diff for this run — not worktree-isolated, or already merged/discarded' })
     }
@@ -181,7 +236,42 @@ export function registerDispatchRoutes(
 
   app.post<{ Params: { runId: string } }>('/api/runs/:runId/merge', async (req, reply) => {
     const run = dispatcher.get(req.params.runId)
-    if (!run) return reply.code(404).send({ error: 'unknown run' })
+    if (!run) {
+      // Same guarded flow as the live path, driven by the history row.
+      const row = historyRow(req.params.runId)
+      if (!row) return reply.code(404).send({ error: 'unknown run' })
+      const project = registry.byId(row.projectId)
+      if (!project) return reply.code(404).send({ error: 'unknown project' })
+
+      const status = await git(['-C', project.path, 'status', '--porcelain'])
+      if (status.code !== 0) {
+        return reply.code(409).send({ error: `could not check the project tree: ${gitReason(status.stdout, status.stderr)}` })
+      }
+      if (status.stdout.trim() !== '') {
+        return reply.code(409).send({ error: 'the project checkout has uncommitted changes — commit or stash them before merging' })
+      }
+
+      // A surviving worktree may hold work the run never committed; the review
+      // diff showed it, so the merge must deliver it.
+      const dir = join(worktreesRoot, row.runId)
+      if (existsSync(dir)) {
+        const commit = await commitPendingChanges(dir)
+        if (commit.code !== 0) {
+          return reply.code(409).send({ error: `could not commit the worktree's pending changes: ${gitReason(commit.stdout, commit.stderr)}` })
+        }
+      }
+
+      const merge = await git(['-C', project.path, 'merge', '--no-ff', row.branch])
+      if (merge.code !== 0) {
+        await git(['-C', project.path, 'merge', '--abort'])
+        return reply.code(409).send({ error: `merge failed and was aborted: ${gitReason(merge.stdout, merge.stderr)}` })
+      }
+
+      if (existsSync(dir)) await removeWorktree(project.path, dir, true)
+      history.markRunResolved(row.runId, 'merged')
+      onReviewsChanged()
+      return { ok: true, branch: row.branch }
+    }
     if (!worktreeLive(run)) {
       return reply.code(409).send({ error: 'nothing to merge — not worktree-isolated, or already merged/discarded' })
     }
@@ -201,14 +291,21 @@ export function registerDispatchRoutes(
       return reply.code(409).send({ error: 'the project checkout has uncommitted changes — commit or stash them before merging' })
     }
 
+    // Runs are not required to commit their own work; the review diff showed
+    // the uncommitted changes, so the merge must carry them onto the branch.
+    const commit = await commitPendingChanges(run.worktreeDir)
+    if (commit.code !== 0) {
+      return reply.code(409).send({ error: `could not commit the worktree's pending changes: ${gitReason(commit.stdout, commit.stderr)}` })
+    }
+
     const merge = await git(['-C', project.path, 'merge', '--no-ff', run.branch])
     if (merge.code !== 0) {
       await git(['-C', project.path, 'merge', '--abort'])
       return reply.code(409).send({ error: `merge failed and was aborted: ${gitReason(merge.stdout, merge.stderr)}` })
     }
 
-    // The merge landed, so a dirty worktree may be force-removed. The branch is
-    // kept — branches are never deleted.
+    // The merge landed, so the (now clean) worktree may be removed. The branch
+    // is kept — branches are never deleted.
     await removeWorktree(project.path, run.worktreeDir, true)
     dispatcher.markResolved(run.runId, 'merged')
     return { ok: true, branch: run.branch }
@@ -216,7 +313,20 @@ export function registerDispatchRoutes(
 
   app.post<{ Params: { runId: string } }>('/api/runs/:runId/discard', async (req, reply) => {
     const run = dispatcher.get(req.params.runId)
-    if (!run) return reply.code(404).send({ error: 'unknown run' })
+    if (!run) {
+      const row = historyRow(req.params.runId)
+      if (!row) return reply.code(404).send({ error: 'unknown run' })
+      const project = registry.byId(row.projectId)
+      if (!project) return reply.code(404).send({ error: 'unknown project' })
+
+      // The branch is NEVER deleted — discarding only drops the row from the
+      // review queue and removes a surviving worktree dir.
+      const dir = join(worktreesRoot, row.runId)
+      if (existsSync(dir)) await removeWorktree(project.path, dir, true)
+      history.markRunResolved(row.runId, 'discarded')
+      onReviewsChanged()
+      return { ok: true, branch: row.branch }
+    }
     if (!worktreeLive(run)) {
       return reply.code(409).send({ error: 'nothing to discard — not worktree-isolated, or already merged/discarded' })
     }

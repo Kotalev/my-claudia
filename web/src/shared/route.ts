@@ -4,6 +4,7 @@ export interface Route {
   projectId: string | null
   sessionId: string | null
   history?: boolean
+  digest?: boolean
 }
 
 /**
@@ -20,6 +21,9 @@ export interface Route {
 export function parseRoute(pathname: string): Route {
   if (pathname === '/history' || pathname.startsWith('/history/')) {
     return { projectId: null, sessionId: null, history: true }
+  }
+  if (pathname === '/digest' || pathname.startsWith('/digest/')) {
+    return { projectId: null, sessionId: null, digest: true }
   }
   const project = /^\/p\/([^/]+)/.exec(pathname)
   const session = /\/s\/([^/]+)/.exec(pathname)
@@ -41,6 +45,7 @@ function decodeSegment(raw: string | undefined): string | null {
 
 export function pathFor(route: Route): string {
   if (route.history) return '/history'
+  if (route.digest) return '/digest'
   let path = ''
   if (route.projectId) path += `/p/${encodeURIComponent(route.projectId)}`
   if (route.sessionId) path += `/s/${encodeURIComponent(route.sessionId)}`

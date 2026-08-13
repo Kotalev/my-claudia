@@ -95,6 +95,8 @@ export interface DispatchInput {
   kind?: RunKind
   /** The session `--resume` continues. Required when kind is 'resume'. */
   resumeSessionId?: string
+  /** The loop this dispatch belongs to, carried onto the RunHandle so history can group a loop's runs. */
+  loopId?: string | null
 }
 
 /**
@@ -150,6 +152,33 @@ export interface RunHandle {
   discarded?: boolean
   /** Latest rate-limit event from the stream. Optional so older handles stay valid. */
   lastRateLimit?: RateLimitInfo | null
+  /** The loop schedule that started this run. Optional so pre-loop handles stay valid. */
+  loopId?: string | null
+  /** ISO time of the last stdout/stderr from the child. Refreshed on every stream event. */
+  lastOutputAt?: string
+  /** Advisory: 'running' with no output for stallAfterMs. Cleared when output resumes. */
+  stalled?: boolean
+  /** Advisory, one-way: the run has lived longer than warnAfterMs. */
+  longRunning?: boolean
+}
+
+/**
+ * One finished worktree run whose changes have been neither merged nor
+ * discarded. `live` items come from the current process's dispatcher;
+ * `history` items are unresolved rows from the history db whose `mc/run-*`
+ * branch still exists — work from a previous server process that must not
+ * rot unseen. Live wins when both know the same runId.
+ */
+export interface PendingReview {
+  runId: string
+  projectId: string
+  taskId: string | null
+  branch: string
+  baseCommit: string | null
+  startedAt: string
+  endedAt: string | null
+  source: 'live' | 'history'
+  loopId: string | null
 }
 
 /** What a scheduled job does when it fires. */
@@ -174,6 +203,16 @@ export interface ScheduleJob {
   runAt: string
   createdAt: string
   note: string | null
+  /** Loop cadence in ms (>= 60s). Null = one-shot. */
+  repeatEveryMs: number | null
+  /** Stable id shared by every job of one recurring loop. Null = one-shot. */
+  loopId: string | null
+  /** 1-based position of this job within its loop. 1 for one-shots. */
+  iteration: number
+  /** The loop does not replicate past this iteration. Null = unbounded. */
+  maxIterations: number | null
+  /** The loop stops after this many consecutive failed runs. Null = never. */
+  stopAfterFailures: number | null
 }
 
 /** How a live process was started. Background agents have no OS process of their own. */
@@ -199,7 +238,8 @@ export interface LiveProcess {
   version: string | null
   /** Null when the registry entry did not state one — not a reason to call it dead. */
   startedAt: string | null
-  state: LiveState
+  /** Null when the source stated no status at all (sdk-cli entries, agents with an unrecognised state). */
+  state: LiveState | null
   /** What the session is waiting for, when Claude Code says. */
   waitingFor: string | null
   /**

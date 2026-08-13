@@ -2,11 +2,18 @@
 
 ## Todo
 
-- [ ] **T-059** Finished sessions show WORKING for ~5 min: registry `idle` must beat freshness in `deriveStatus`; keep the fresh fallback only for status-less (sdk-cli) processes `#p1`
-
 ## In progress
 
 ## Done
+
+- [x] **T-059** Finished sessions show WORKING for ~5 min: registry `idle` must beat freshness in `deriveStatus`; keep the fresh fallback only for status-less (sdk-cli) processes `#p1` (2026-08-13)
+- [x] **T-066** Loop schedules: `repeatEveryMs` on a schedule; on run finish the job replicates itself; stop conditions (max iterations, N consecutive failures); iterations chained under a `loopId` in history `#m15` `#p1` (2026-08-13)
+- [x] **T-067** Watchdog: flag a run that exceeds a max duration or emits no output for N minutes; notification + visible state on the run panel `#m15` `#p1` (2026-08-13)
+- [x] **T-068** Attention inbox on Overview: one list of everything waiting on a human — waiting sessions, awaiting-input runs, failed runs, unreviewed worktree diffs `#m15` `#p1` (2026-08-13)
+- [x] **T-069** Review queue: finished worktree runs with unmerged changes surfaced for diff review / merge / discard (extends T-058), so loop output never rots unseen `#m15` `#p2` (2026-08-13)
+- [x] **T-070** Digest view: what ran since a cutoff (overnight) — outcomes, cost, pending reviews; linked from Overview `#m15` `#p2` (2026-08-13)
+- [x] **T-071** Rate-limit-aware loops: delay a loop iteration when the 5h window is near its limit or a rate_limit_event says blocked `#m15` `#p2` (2026-08-13)
+- [x] **T-072** History search: LIKE search over run prompts/output tails in the History view (FTS5 skipped deliberately — availability in node:sqlite uncertain, table small) `#m15` `#p2` (2026-08-13)
 
 - [x] **T-060** Steering: send follow-up messages to a live dispatched run over stream-json stdin; input box on the run panel `#m14` `#p1` (2026-08-13)
 - [x] **T-061** Start/resume sessions from the dashboard: new prompt against a project, resume an existing session headlessly `#m14` `#p1` (2026-08-13)
@@ -79,6 +86,12 @@
 
 ## Progress log
 
+- 2026-08-13 12:37 T-059,T-066..T-072 — all eight done, browser-verified on prod build: loop fired/replicated/stopped, review restart path, inbox, digest, search; 763 tests
+- 2026-08-13 12:33 T-069 — merge now commits a worktree's pending changes first: runs are not required to commit, the diff showed them, silent loss was possible
+- 2026-08-13 12:25 — npm test used to prune the REAL .worktrees via buildServer's cwd defaults (killed a live run's worktree); buildServer paths now injectable, tests use tmp roots
+- 2026-08-13 12:22 T-066 — loop iterations auto-finish their stdin at awaiting-input: nobody steers an autonomous run and the 10-min idle tail broke short cadences
+- 2026-08-13 11:42 T-059/066/067 — wave 1 landed + wiring: loops replicate via LoopController, watchdog flags stalls, idle beats freshness; 683 tests
+- 2026-08-13 11:23 T-059,T-066..T-072 — round 4 queued (loops, watchdog, inbox, review queue, digest, rate-aware, FTS); 2-wave workflow starting
 - 2026-08-13 11:05 T-060..T-065 — all six done; browser-verified on prod build: steer/finish, resume recalled context, queue drained, schedule fired at 10:41, template CRUD, history persisted; 656 tests
 - 2026-08-13 11:00 T-065 — task run button now queues when the project is busy (was disabled); running detection covers parallel runs
 - 2026-08-13 10:50 T-064 — rate-limit auto-continue is test-verified only: a real limit cannot be triggered on demand; scheduler itself fired live
