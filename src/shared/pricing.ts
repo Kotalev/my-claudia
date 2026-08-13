@@ -1,4 +1,4 @@
-import type { RateBucket, TokenTotals } from './types.js'
+import type { RateBucket } from './types.js'
 
 /**
  * Verified against https://platform.claude.com/docs/en/about-claude/pricing.md
@@ -163,8 +163,4 @@ export function occupancyFraction(contextTokens: number | null, model: string | 
   const window = contextWindowFor(model)
   if (contextTokens === null || window === null || window <= 0) return null
   return Math.min(contextTokens / window, 1)
-}
-
-export function totalTokens(t: TokenTotals): number {
-  return t.inputTokens + t.outputTokens + t.cacheReadInputTokens + t.cacheCreationInputTokens
 }

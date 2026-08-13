@@ -9,6 +9,7 @@
 ## Done
 
 - [x] **T-073** Interrupted runs survive a restart: live runs mirrored to interrupted-runs.json; on startup leftovers offered for one-click resume/dismiss in the UI (2026-08-13)
+- [x] **T-074** Dead code sweep: find unused functions/variables/files across the project, verify each is truly unused, remove them, then run tests/lint to confirm nothing broke `#deadcode` (2026-08-13)
 - [x] **T-059** Finished sessions show WORKING for ~5 min: registry `idle` must beat freshness in `deriveStatus`; keep the fresh fallback only for status-less (sdk-cli) processes `#p1` (2026-08-13)
 - [x] **T-066** Loop schedules: `repeatEveryMs` on a schedule; on run finish the job replicates itself; stop conditions (max iterations, N consecutive failures); iterations chained under a `loopId` in history `#m15` `#p1` (2026-08-13)
 - [x] **T-067** Watchdog: flag a run that exceeds a max duration or emits no output for N minutes; notification + visible state on the run panel `#m15` `#p1` (2026-08-13)
@@ -84,6 +85,9 @@
 
 ## Progress log
 
+- 2026-08-13 13:55 T-074 — done: totalTokens deleted, zustand dropped, 9 unused re-exports + 10 dead export keywords trimmed; 763 tests, lint + build clean
+- 2026-08-13 13:45 T-074 — watchdog test failure was env, not code: NODE_ENV=production npm install pruned dev deps; --include=dev fixed it
+- 2026-08-13 13:05 T-074 — started dead-code sweep; plan: knip/ts-prune style analysis + manual verification before any removal
 - 2026-08-13 13:35 T-073 — done, browser-verified on prod build: kill mid-run → restart → INTERRUPTED block → resume continued the SAME session; 727 tests
 - 2026-08-13 13:20 T-073 — eager mirror is the design, not shutdown hooks: Ctrl+C on npm run dev kills the tree, onClose never fires
 - 2026-08-13 13:11 T-073 — started: mirror live runs to interrupted-runs.json eagerly (Ctrl+C never runs onClose), offer leftovers on startup

@@ -2,7 +2,7 @@ import { stat } from 'node:fs/promises'
 import { createTailState, type TailState } from './tail.js'
 
 /** Transcripts untouched for longer than this are not backfilled at startup. */
-export const BACKFILL_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+const BACKFILL_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
 /** At most this much history is read from any single transcript on first sight. */
 export const BACKFILL_MAX_BYTES = 1024 * 1024

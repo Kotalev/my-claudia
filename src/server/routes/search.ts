@@ -6,7 +6,7 @@ import type { ProjectRegistry } from '../registry.js'
 /** Enough matches to be useful, few enough that the scan stays bounded. */
 export const MAX_RESULTS = 50
 /** One-character queries match almost every entry and mean nothing. */
-export const MIN_QUERY_LENGTH = 2
+const MIN_QUERY_LENGTH = 2
 /** Characters of surrounding text kept on each side of the match. */
 const CONTEXT_CHARS = 60
 

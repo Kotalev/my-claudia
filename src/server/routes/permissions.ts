@@ -8,7 +8,7 @@ import type { PermissionRequestInfo } from '../../shared/types.js'
  * at 30, so 22s leaves room to answer `{}` while both are still listening —
  * an empty reply means "no opinion" and the terminal prompt appears as usual.
  */
-export const HOLD_MS = 22_000
+const HOLD_MS = 22_000
 
 export type PermissionBehavior = 'allow' | 'deny'
 

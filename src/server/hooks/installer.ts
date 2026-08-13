@@ -23,17 +23,17 @@ interface HookCommand { type: 'command'; command: string; timeout?: number }
 interface HookGroup { matcher?: string; hooks: HookCommand[] }
 
 /** Hook commands are run through a shell, so a checkout path with a space would split. */
-export function shellQuote(path: string): string {
+function shellQuote(path: string): string {
   return `'${path.replaceAll("'", `'\\''`)}'`
 }
 
-export function buildHookEntry(scriptPath: string): HookCommand {
+function buildHookEntry(scriptPath: string): HookCommand {
   // No matcher: matcher semantics have changed across Claude Code releases, and
   // we want every occurrence of these events regardless.
   return { type: 'command', command: shellQuote(scriptPath), timeout: 1 }
 }
 
-export function buildPermissionEntry(scriptPath: string): HookCommand {
+function buildPermissionEntry(scriptPath: string): HookCommand {
   // 30s, not 1: blocking is this hook's whole purpose — the window is how a
   // dashboard click reaches the prompt. Timing out is still safe: no stdout
   // means Claude Code falls back to its normal terminal prompt.
@@ -159,7 +159,7 @@ export function mergeStatusLine(
 }
 
 /** The statusline the user runs today, from their own settings. Read only. */
-export async function currentStatusLineCommand(): Promise<string | null> {
+async function currentStatusLineCommand(): Promise<string | null> {
   const raw = await readFile(join(resolveClaudeDir(), 'settings.json'), 'utf8').catch(() => null)
   if (raw === null) return null
   try {
