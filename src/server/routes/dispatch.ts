@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { TaskStore } from '../../tasks/store.js'
 import type { ProjectRegistry } from '../registry.js'
+import type { SessionStore } from '../watcher/session-store.js'
 import type { Dispatcher } from '../dispatcher/index.js'
+import type { DispatchQueue } from '../dispatcher/queue.js'
 import { buildTaskPrompt } from '../dispatcher/prompt.js'
 import { collectDiff, git, removeWorktree } from '../dispatcher/worktree.js'
 import type { RunHandle } from '../../shared/types.js'
@@ -22,9 +24,20 @@ export function registerDispatchRoutes(
   app: FastifyInstance,
   registry: ProjectRegistry,
   dispatcher: Dispatcher,
+  queue: DispatchQueue,
+  sessions: SessionStore,
   onTasksChanged: (projectId: string) => void,
 ): void {
   app.get('/api/runs', async () => ({ runs: dispatcher.list() }))
+
+  app.get('/api/queue', async () => ({ queue: queue.list() }))
+
+  app.delete<{ Params: { queueId: string } }>('/api/queue/:queueId', async (req, reply) => {
+    if (!queue.cancel(req.params.queueId)) {
+      return reply.code(404).send({ error: 'unknown queued dispatch' })
+    }
+    return { ok: true }
+  })
 
   app.post<{ Params: { id: string; taskId: string } }>(
     '/api/projects/:id/tasks/:taskId/dispatch', async (req, reply) => {
@@ -37,23 +50,117 @@ export function registerDispatchRoutes(
       if (!task) return reply.code(404).send({ error: `unknown task ${req.params.taskId}` })
 
       try {
-        const run = await dispatcher.start({
+        const started = await queue.start({
           projectId: project.id,
           projectPath: project.path,
           taskId: task.id,
           prompt: buildTaskPrompt(task),
         })
         // Reflect the run on the board straight away rather than waiting for the
-        // agent to get round to editing TASKS.md itself.
+        // agent to get round to editing TASKS.md itself. A queued dispatch is
+        // committed work too, so it flips the task the same way.
         if (task.status === 'todo') {
           await store.updateTask(task.id, { status: 'in-progress' })
           onTasksChanged(project.id)
         }
-        return { run }
+        return started
       } catch (err) {
         return reply.code(409).send({ error: (err as Error).message })
       }
     })
+
+  // A run from a free prompt: no task behind it, otherwise a normal dispatch
+  // (worktree-isolated when the project is a git repo).
+  app.post<{ Params: { id: string }; Body: { text?: unknown } | null }>(
+    '/api/projects/:id/prompt', async (req, reply) => {
+      const project = registry.byId(req.params.id)
+      if (!project) return reply.code(404).send({ error: 'unknown project' })
+      const text = req.body?.text
+      if (typeof text !== 'string' || text.trim() === '') {
+        return reply.code(400).send({ error: 'text must be a non-empty string' })
+      }
+      try {
+        return await queue.start({
+          projectId: project.id, projectPath: project.path, taskId: null,
+          prompt: text, kind: 'prompt',
+        })
+      } catch (err) {
+        return reply.code(409).send({ error: (err as Error).message })
+      }
+    })
+
+  // Continue an existing session headlessly via `--resume`. Refused while the
+  // session is live somewhere: steering someone's open terminal session from
+  // behind their back is wrong.
+  app.post<{ Params: { sessionId: string }; Body: { text?: unknown } | null }>(
+    '/api/sessions/:sessionId/resume', async (req, reply) => {
+      const summary = sessions.get(req.params.sessionId)
+      if (!summary) return reply.code(404).send({ error: 'unknown session' })
+      const project = summary.projectId === null ? undefined : registry.byId(summary.projectId)
+      if (!project) return reply.code(404).send({ error: 'the session does not belong to a registered project' })
+      if (summary.live) {
+        return reply.code(409).send({ error: 'the session is live in another terminal — talk to it there instead' })
+      }
+      const text = req.body?.text
+      if (typeof text !== 'string' || text.trim() === '') {
+        return reply.code(400).send({ error: 'text must be a non-empty string' })
+      }
+      try {
+        return await queue.start({
+          projectId: project.id, projectPath: project.path, taskId: null,
+          prompt: text, kind: 'resume', resumeSessionId: summary.sessionId,
+        })
+      } catch (err) {
+        return reply.code(409).send({ error: (err as Error).message })
+      }
+    })
+
+  // Re-dispatch an ended run with the same input. Task runs re-read the task
+  // for fresh text, exactly like the original dispatch; prompt and resume runs
+  // replay their stored prompt. Goes through the queue, so a busy project
+  // answers { queued } rather than 409.
+  app.post<{ Params: { runId: string } }>('/api/runs/:runId/retry', async (req, reply) => {
+    const run = dispatcher.get(req.params.runId)
+    const input = dispatcher.originalInput(req.params.runId)
+    if (!run || !input) return reply.code(404).send({ error: 'unknown run' })
+    if (run.status !== 'failed' && run.status !== 'cancelled') {
+      return reply.code(409).send({ error: 'only a failed or cancelled run can be retried' })
+    }
+    if (run.taskId !== null) {
+      const project = registry.byId(run.projectId)
+      if (!project) return reply.code(404).send({ error: 'unknown project' })
+      const doc = await new TaskStore(project.path).read()
+      const task = doc.tasks.find(t => t.id === run.taskId)
+      if (!task) return reply.code(404).send({ error: `task ${run.taskId} no longer exists` })
+      input.prompt = buildTaskPrompt(task)
+    }
+    try {
+      return await queue.start(input)
+    } catch (err) {
+      return reply.code(409).send({ error: (err as Error).message })
+    }
+  })
+
+  app.post<{ Params: { runId: string }; Body: { text?: unknown } | null }>(
+    '/api/runs/:runId/input', async (req, reply) => {
+      if (!dispatcher.get(req.params.runId)) return reply.code(404).send({ error: 'unknown run' })
+      const text = req.body?.text
+      if (typeof text !== 'string' || text.trim() === '') {
+        return reply.code(400).send({ error: 'text must be a non-empty string' })
+      }
+      if (!dispatcher.steer(req.params.runId, text)) {
+        return reply.code(409).send({ error: 'the run has already ended — it cannot take more input' })
+      }
+      return { ok: true }
+    })
+
+  app.post<{ Params: { runId: string } }>('/api/runs/:runId/finish', async (req, reply) => {
+    if (!dispatcher.get(req.params.runId)) return reply.code(404).send({ error: 'unknown run' })
+    if (!dispatcher.finishInput(req.params.runId)) {
+      return reply.code(409).send({ error: 'the run has already ended — nothing to finish' })
+    }
+    return { ok: true }
+  })
 
   app.post<{ Params: { runId: string } }>('/api/runs/:runId/cancel', async (req, reply) => {
     if (!dispatcher.cancel(req.params.runId)) {
@@ -79,7 +186,7 @@ export function registerDispatchRoutes(
       return reply.code(409).send({ error: 'nothing to merge — not worktree-isolated, or already merged/discarded' })
     }
     if (run.endedAt === null) {
-      return reply.code(409).send({ error: 'the run is still going — wait for it to finish or cancel it' })
+      return reply.code(409).send({ error: 'the run is still going — an awaiting-input run must be finished (or cancelled) before merging' })
     }
     const project = registry.byId(run.projectId)
     if (!project) return reply.code(404).send({ error: 'unknown project' })
@@ -114,7 +221,7 @@ export function registerDispatchRoutes(
       return reply.code(409).send({ error: 'nothing to discard — not worktree-isolated, or already merged/discarded' })
     }
     if (run.endedAt === null) {
-      return reply.code(409).send({ error: 'the run is still going — cancel it first' })
+      return reply.code(409).send({ error: 'the run is still going — an awaiting-input run must be finished (or cancelled) before discarding' })
     }
     const project = registry.byId(run.projectId)
     if (!project) return reply.code(404).send({ error: 'unknown project' })

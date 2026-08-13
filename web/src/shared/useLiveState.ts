@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AccountInfo, PermissionRequestInfo, ProjectRecord, RunHandle, SessionStatus, SessionSummary, SpendSummary, TasksDoc } from './types.js'
+import type { AccountInfo, PermissionRequestInfo, ProjectRecord, QueuedDispatch, RunHandle, ScheduleJob, SessionStatus, SessionSummary, SpendSummary, TasksDoc } from './types.js'
 import type { PlanLimits } from '@server/live/statusline.js'
 import { dismiss, fire, isEnabled, permission, reconcile, shouldNotify } from './notifications.js'
 import { wsUrl } from './api.js'
@@ -14,6 +14,8 @@ export interface LiveState {
   runs: RunHandle[]
   runOutput: Record<string, string>
   permissions: PermissionRequestInfo[]
+  schedules: ScheduleJob[]
+  queue: QueuedDispatch[]
   connected: boolean
 }
 
@@ -36,6 +38,8 @@ export function useLiveState({ focusedSessionId, onOpenSession }: LiveStateOptio
   const [runs, setRuns] = useState<RunHandle[]>([])
   const [runOutput, setRunOutput] = useState<Record<string, string>>({})
   const [permissions, setPermissions] = useState<PermissionRequestInfo[]>([])
+  const [schedules, setSchedules] = useState<ScheduleJob[]>([])
+  const [queue, setQueue] = useState<QueuedDispatch[]>([])
   const [connected, setConnected] = useState(false)
   const lastSeq = useRef(0)
   const seeded = useRef(false)
@@ -96,6 +100,12 @@ export function useLiveState({ focusedSessionId, onOpenSession }: LiveStateOptio
           setSpend(msg.spend ?? null)
           setAccount(msg.account ?? null)
           setPermissions(msg.permissions ?? [])
+          setSchedules(msg.schedules ?? [])
+          setQueue(msg.queue ?? [])
+        } else if (msg.type === 'schedule.updated') {
+          setSchedules(msg.schedules ?? [])
+        } else if (msg.type === 'queue.updated') {
+          setQueue(msg.queue ?? [])
         } else if (msg.type === 'dispatch.updated') {
           setRuns(prev => [msg.run, ...prev.filter(r => r.runId !== msg.run.runId)])
         } else if (msg.type === 'dispatch.output') {
@@ -172,5 +182,5 @@ export function useLiveState({ focusedSessionId, onOpenSession }: LiveStateOptio
     }
   }, [])
 
-  return { projects, sessions, tasks, planLimits, spend, account, runs, runOutput, permissions, connected }
+  return { projects, sessions, tasks, planLimits, spend, account, runs, runOutput, permissions, schedules, queue, connected }
 }

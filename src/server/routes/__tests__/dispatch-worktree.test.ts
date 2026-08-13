@@ -11,6 +11,7 @@ import type { ProjectRecord, RunHandle } from '../../../shared/types.js'
 import type { ProjectRegistry } from '../../registry.js'
 import { Dispatcher } from '../../dispatcher/index.js'
 import { registerDispatchRoutes } from '../dispatch.js'
+import { DispatchQueue } from '../../dispatcher/queue.js'
 import { initRepo } from '../../dispatcher/__tests__/init-repo.js'
 
 const exec = promisify(execFile)
@@ -29,15 +30,18 @@ async function makeHarness(projectPath: string): Promise<{
   start: () => Promise<RunHandle>
 }> {
   const worktreesRoot = await mkdtemp(join(tmpdir(), 'mc-wtroot-'))
+  // Short idleMs: these tests want runs to conclude on their own once the fake
+  // has answered the prompt, rather than sitting in 'awaiting-input'.
   const dispatcher = new Dispatcher({
-    claudeBin: process.execPath, extraArgs: [FAKE], timeoutMs: 5000, worktreesRoot,
+    claudeBin: process.execPath, extraArgs: [FAKE], timeoutMs: 5000, idleMs: 200, worktreesRoot,
   })
   const project: ProjectRecord = {
     id: 'p1', path: projectPath, name: 'p1', escapedDir: '-tmp-p1', addedAt: '2026-01-01T00:00:00Z',
   }
   const registry = { byId: (id: string) => (id === project.id ? project : undefined) } as unknown as ProjectRegistry
   const app = Fastify()
-  registerDispatchRoutes(app, registry, dispatcher, () => {})
+  const sessions = { get: () => undefined } as unknown as import('../../watcher/session-store.js').SessionStore
+  registerDispatchRoutes(app, registry, dispatcher, new DispatchQueue(dispatcher), sessions, () => {})
   await app.ready()
   const start = async (): Promise<RunHandle> => {
     const handle = await dispatcher.start({

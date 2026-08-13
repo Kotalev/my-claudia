@@ -2,11 +2,14 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { Dispatcher, type RunHandle } from '../index.js'
+import { initRepo } from './init-repo.js'
 
 const FAKE = fileURLToPath(new URL('../../../../test/fixtures/fake-claude.mjs', import.meta.url))
 
-function makeDispatcher(timeoutMs = 5000) {
-  return new Dispatcher({ claudeBin: process.execPath, extraArgs: [FAKE], timeoutMs })
+// A short idleMs: after the fake answers the prompt the run sits in
+// 'awaiting-input', and these lifecycle tests want it to conclude on its own.
+function makeDispatcher(timeoutMs = 5000, idleMs = 150) {
+  return new Dispatcher({ claudeBin: process.execPath, extraArgs: [FAKE], timeoutMs, idleMs })
 }
 
 const input = { projectId: 'p1', projectPath: tmpdir(), taskId: 'T-001', prompt: 'do the thing' }
@@ -91,7 +94,7 @@ describe('Dispatcher', () => {
     expect(d.list()[0]!.status).toBe('cancelled')
   }, 10_000)
 
-  it('passes the prompt as a single argv element, never through a shell', async () => {
+  it('sends the prompt over stdin as stream-json, never through argv or a shell', async () => {
     const d = makeDispatcher()
     const chunks: string[] = []
     d.on('output', (e: { chunk: string }) => chunks.push(e.chunk))
@@ -99,11 +102,12 @@ describe('Dispatcher', () => {
     const handle = await d.start({ ...input, prompt: nasty })
     await ended(d, handle.runId)
 
-    // fake-claude echoes its own argv: the whole prompt must arrive intact as
-    // ONE element, not split on spaces or interpreted by a shell.
-    // fake-claude echoes its argv as assistant text, so the rendered stream shows
-    // the whole prompt as one piece rather than split on spaces by a shell.
-    expect(chunks.join('')).toContain(`args:5`)
+    const out = chunks.join('')
+    // fake-claude echoes its argv: only the six flags, no prompt element.
+    expect(out).toContain('args:6')
+    // fake-claude echoes each stdin user message: the prompt arrived intact,
+    // not split on spaces or interpreted by a shell.
+    expect(out).toContain(`echo:${nasty}`)
     expect(d.get(handle.runId)!.status).toBe('succeeded')
   })
 
@@ -112,6 +116,55 @@ describe('Dispatcher', () => {
     const handle = await d.start(input)
     await ended(d, handle.runId)
     expect(d.list()[0]!.status).toBe('failed')
+  })
+})
+
+describe('Dispatcher — run kinds', () => {
+  it('a prompt run carries kind and a null taskId, and completes normally', async () => {
+    const d = makeDispatcher()
+    const handle = await d.start({ ...input, taskId: null, kind: 'prompt' })
+    await ended(d, handle.runId)
+    const run = d.get(handle.runId)!
+    expect(run.kind).toBe('prompt')
+    expect(run.taskId).toBeNull()
+    expect(run.status).toBe('succeeded')
+  })
+
+  it('a resume run puts --resume <id> in argv and knows its session id up front', async () => {
+    const d = makeDispatcher()
+    const chunks: string[] = []
+    d.on('output', (e: { chunk: string }) => chunks.push(e.chunk))
+    const handle = await d.start({
+      ...input, taskId: null, kind: 'resume', resumeSessionId: 'sess-abc-def',
+    })
+    expect(handle.sessionId).toBe('sess-abc-def')
+    await ended(d, handle.runId)
+    expect(chunks.join('')).toContain('--resume sess-abc-def')
+    // The preset id survives the fake's own init event.
+    expect(d.get(handle.runId)!.sessionId).toBe('sess-abc-def')
+  })
+
+  it('refuses a resume run without a session id', async () => {
+    const d = makeDispatcher()
+    await expect(d.start({ ...input, taskId: null, kind: 'resume' }))
+      .rejects.toThrow(/resumeSessionId/i)
+  })
+
+  it('a resume run stays in place even in a git repo and keeps the 1-per-project guard', async () => {
+    const repo = await initRepo()
+    process.env.FAKE_CLAUDE_MODE = 'hang'
+    const d = makeDispatcher()
+    const first = await d.start({
+      projectId: 'pr', projectPath: repo, taskId: null, prompt: 'go',
+      kind: 'resume', resumeSessionId: 's1',
+    })
+    expect(first.isolation).toBe('in-place')
+    await expect(d.start({
+      projectId: 'pr', projectPath: repo, taskId: null, prompt: 'go',
+      kind: 'resume', resumeSessionId: 's2',
+    })).rejects.toThrow(/already running/i)
+    d.cancel(first.runId)
+    await ended(d, first.runId)
   })
 })
 

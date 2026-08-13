@@ -42,7 +42,7 @@ These were checked against the official docs (code.claude.com/docs) on 2026-08-1
 
 ## 3. Architecture
 
-Single Node process serving both API and frontend. Local only — binds to `127.0.0.1`.
+Single Node process serving both API and frontend. Binds to `127.0.0.1` by default; `MC_HOST` is an explicit opt-in for remote/mobile access (see section 4).
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -136,7 +136,7 @@ Installable per project (dashboard offers a "install hooks" helper that merges i
 
 ## 4. Security constraints
 
-- Bind `127.0.0.1` only; refuse other hosts. No auth in v1 *because* of this — revisit if that ever changes.
+- Bind `127.0.0.1` by default; refuse other hosts. Setting `MC_HOST` is the explicit opt-in for a non-loopback bind (remote/mobile access): the origin guard then also accepts the configured host (any host on a wildcard bind, where the Host header carries the client's chosen address), the CLI prints a warning that the dashboard is exposed beyond localhost, and the `?token=` URL is the only key — the token stays mandatory on every bind.
 - Dispatcher only runs `claude` with controlled flags; task text is passed as a single argv element (no shell interpolation).
 - Hook helper script must be non-blocking and fail-silent (never break Claude Code when dashboard is down).
 - Dashboard never writes to `~/.claude` except the opt-in hook install into a project's `.claude/settings.local.json` (with a backup of the previous file). The installer refuses `$HOME` and any path whose `.claude` is the Claude data dir, and aborts on an unparseable settings file instead of replacing it.
@@ -452,6 +452,26 @@ answers 200 to garbage; the decision endpoint
 (`POST /api/permissions/:id/decision`) requires the token, because it is a
 local process authorising tool use. Only a ~120-char summary of `tool_input`
 ever reaches the broadcast — never the raw payload.
+
+### 8.12 Auto-continue after rate limits, and scheduled dispatch (T-064)
+
+Verified stream fact (2026-08-13): the `claude -p` output stream emits
+`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"|…,
+"resetsAt":<epoch seconds>,"rateLimitType":"five_hour",…}}`. `status` is an
+open set; the dispatcher keeps the latest well-formed one per run and, when a
+run *fails* while that status is anything but `allowed`, emits `rate-limited`.
+
+The server answers by scheduling a headless `--resume` of the run's session at
+`resetsAt + 60s` (or +30 min when no usable reset time) with the prompt
+"continue". **Auto-continue is always on for failed rate-limited runs — there
+is deliberately no per-run opt-out this round**; cancelling the pending
+schedule from the dashboard is the opt-out. If the resume is blocked at fire
+time (in-place 1-per-project guard), it retries every 5 min, max 6 attempts.
+
+Schedules (auto-continue and user-chosen `dispatch-task` times) persist in the
+history db (`schedules` table, migration 3). On start, jobs overdue < 24h fire
+immediately; older ones are dropped with a log line. Without SQLite the
+scheduler runs fully in memory and jobs die with the process.
 
 ## 7. Risks
 

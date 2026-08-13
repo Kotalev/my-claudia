@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Mission Control mark: radar rings + one working orbit dot, on the app's
+       dark palette (page #08090a, edge #23282a, work #3ddc84, info #4d9dff). -->
+  <rect width="512" height="512" rx="96" fill="#0e1011"/>
+  <g fill="none" stroke="#23282a" stroke-width="10">
+    <circle cx="256" cy="256" r="180"/>
+    <circle cx="256" cy="256" r="118"/>
+    <circle cx="256" cy="256" r="56"/>
+  </g>
+  <!-- sweep: a quarter arc on the outer ring, in the info blue -->
+  <path d="M 256 76 A 180 180 0 0 1 436 256" fill="none" stroke="#4d9dff" stroke-width="14" stroke-linecap="round"/>
+  <!-- the tracked session: a working dot on the middle ring -->
+  <circle cx="339.4" cy="172.6" r="26" fill="#3ddc84"/>
+  <!-- center pip -->
+  <circle cx="256" cy="256" r="14" fill="#9aa0a4"/>
+</svg>

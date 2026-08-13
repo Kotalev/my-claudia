@@ -2,7 +2,7 @@ import Fastify, { LogController, type FastifyInstance } from 'fastify'
 import websocket from '@fastify/websocket'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { HOST, PORT } from '../shared/config.js'
+import { HOST, PORT, isLoopbackHost } from '../shared/config.js'
 import { ProjectRegistry } from './registry.js'
 import { registerProjectRoutes } from './routes/projects.js'
 import { registerSessionRoutes } from './routes/sessions.js'
@@ -17,6 +17,7 @@ import { EventHub } from './ws/hub.js'
 import { isAllowedHost, isAllowedOrigin } from './origin-guard.js'
 import { extractToken, loadOrCreateToken, requiresToken, tokenMatches } from './auth.js'
 import { Dispatcher } from './dispatcher/index.js'
+import { DispatchQueue } from './dispatcher/queue.js'
 import { pruneStaleWorktrees } from './dispatcher/worktree.js'
 import { registerDispatchRoutes } from './routes/dispatch.js'
 import { registerHookRoutes } from './routes/hooks.js'
@@ -28,10 +29,17 @@ import { startAlerts } from './alerts/index.js'
 import { registerStatic } from './static.js'
 import { AgentsPoller, mergeLive } from './live/agents-poller.js'
 import { SpendLedger } from './usage/spend-ledger.js'
+import { openHistoryDb } from './history/db.js'
+import { HistoryRecorder } from './history/recorder.js'
+import { registerHistoryRoutes } from './routes/history.js'
+import { Scheduler } from './scheduler/index.js'
+import { registerScheduleRoutes } from './routes/schedules.js'
+import { registerTemplateRoutes } from './routes/templates.js'
+import { buildTaskPrompt } from './dispatcher/prompt.js'
 import { readAccountEmail } from './usage/account.js'
 import { isCountable } from './watcher/usage.js'
 import { projectsDir } from '../shared/config.js'
-import type { AccountInfo, ProjectRecord } from '../shared/types.js'
+import type { AccountInfo, ProjectRecord, QueuedDispatch, RunHandle, ScheduleJob } from '../shared/types.js'
 
 /** Absolute path to the forwarder, resolved once — a project's settings must not hold a relative path. */
 const HOOK_SCRIPT_PATH = fileURLToPath(new URL('../../scripts/hook-post.sh', import.meta.url))
@@ -69,6 +77,7 @@ export async function buildServer(
   await watcher.start()
 
   const dispatcher = new Dispatcher()
+  const dispatchQueue = new DispatchQueue(dispatcher)
   // Runs are in-memory only, so after a restart every directory under
   // .worktrees is an orphan from a previous process. Prune before any dispatch
   // can create a fresh one.
@@ -95,6 +104,14 @@ export async function buildServer(
 
   const spendLedger = new SpendLedger()
 
+  // Persistent history. Degrades to a disabled no-op handle on Node < 22.5
+  // (no node:sqlite) or an unreadable db file — never fatal.
+  const historyDb = await openHistoryDb(join(process.cwd(), 'mission-control.db'))
+  const historyRecorder = new HistoryRecorder(historyDb)
+  historyRecorder.attach(dispatcher)
+
+  const scheduler = new Scheduler(historyDb)
+
   // The account file changes only on login/logout, so a lazy re-read every few
   // minutes is enough — and never on the broadcast path.
   const ACCOUNT_TTL_MS = 5 * 60_000
@@ -119,7 +136,11 @@ export async function buildServer(
     spend: spendLedger.summary(),
     account: accountInfo(),
     permissions: permissionBroker.list(),
+    schedules: scheduler.list(),
+    queue: dispatchQueue.list(),
   }))
+  dispatchQueue.on('changed', (queue: QueuedDispatch[]) =>
+    hub.broadcast({ type: 'queue.updated', queue }))
   permissionBroker.onRequested = request =>
     hub.broadcast({ type: 'permission.requested', request })
   permissionBroker.onResolved = (id, behavior) =>
@@ -133,7 +154,9 @@ export async function buildServer(
     if (spendTimer) return
     spendTimer = setTimeout(() => {
       spendTimer = null
-      hub.broadcast({ type: 'spend.updated', spend: spendLedger.summary() })
+      const spend = spendLedger.summary()
+      historyRecorder.recordSpend(spend)
+      hub.broadcast({ type: 'spend.updated', spend })
     }, 2_000)
     spendTimer.unref()
   }
@@ -221,7 +244,99 @@ export async function buildServer(
   }
 
   registerTaskRoutes(app, registry, publishTasks)
-  registerDispatchRoutes(app, registry, dispatcher, publishTasks)
+  registerDispatchRoutes(app, registry, dispatcher, dispatchQueue, store, publishTasks)
+  registerHistoryRoutes(app, historyDb)
+  registerTemplateRoutes(app, historyDb)
+  registerScheduleRoutes(app, registry, scheduler)
+  scheduler.on('changed', (schedules: ScheduleJob[]) =>
+    hub.broadcast({ type: 'schedule.updated', schedules }))
+
+  // What a schedule does when its moment comes. A fired job is already gone
+  // from the scheduler; a failed resume re-adds itself a few times, everything
+  // else fails into the log — a missed schedule must never sink the server.
+  const RESUME_RETRY_MS = 5 * 60_000
+  const MAX_RESUME_ATTEMPTS = 6
+  const resumeAttempts = new Map<string, number>()
+  const executeSchedule = async (job: ScheduleJob): Promise<void> => {
+    const project = registry.byId(job.projectId)
+    if (!project) {
+      app.log.warn(`schedule ${job.id} dropped: project ${job.projectId} is no longer registered`)
+      return
+    }
+    if (job.kind === 'resume-run' && job.sessionId !== null) {
+      try {
+        await dispatcher.start({
+          projectId: project.id, projectPath: project.path, taskId: null,
+          prompt: job.prompt ?? 'continue', kind: 'resume', resumeSessionId: job.sessionId,
+        })
+        resumeAttempts.delete(job.sessionId)
+      } catch (err) {
+        // Usually the in-place 1-per-project guard: something else is running
+        // there right now. Try again shortly, a bounded number of times.
+        const attempts = (resumeAttempts.get(job.sessionId) ?? 0) + 1
+        if (attempts >= MAX_RESUME_ATTEMPTS) {
+          resumeAttempts.delete(job.sessionId)
+          app.log.warn(`giving up on resuming session ${job.sessionId} after ${attempts} attempts: ${(err as Error).message}`)
+          return
+        }
+        resumeAttempts.set(job.sessionId, attempts)
+        scheduler.add({
+          kind: 'resume-run', projectId: job.projectId, taskId: null,
+          sessionId: job.sessionId, prompt: job.prompt,
+          runAt: new Date(Date.now() + RESUME_RETRY_MS).toISOString(),
+          note: `retry ${attempts + 1}/${MAX_RESUME_ATTEMPTS}`,
+        })
+      }
+    } else if (job.kind === 'dispatch-task' && job.taskId !== null) {
+      // The task text is read now, not at scheduling time, so edits made in
+      // the meantime are what actually runs — same path as a manual dispatch.
+      const taskStore = new TaskStore(project.path)
+      const doc = await taskStore.read()
+      const task = doc.tasks.find(t => t.id === job.taskId)
+      if (!task) {
+        app.log.warn(`schedule ${job.id} dropped: task ${job.taskId} no longer exists in ${project.name}`)
+        return
+      }
+      try {
+        await dispatcher.start({
+          projectId: project.id, projectPath: project.path, taskId: task.id, prompt: buildTaskPrompt(task),
+        })
+        if (task.status === 'todo') {
+          await taskStore.updateTask(task.id, { status: 'in-progress' })
+          publishTasks(project.id)
+        }
+      } catch (err) {
+        app.log.warn(`scheduled dispatch of ${job.taskId} failed: ${(err as Error).message}`)
+      }
+    } else {
+      app.log.warn(`schedule ${job.id} dropped: unusable job (kind ${job.kind})`)
+    }
+  }
+  scheduler.on('fire', (job: ScheduleJob) => {
+    executeSchedule(job).catch(err =>
+      app.log.warn(`schedule ${job.id} failed: ${(err as Error).message}`))
+  })
+
+  // Auto-continue: a run that died rate-limited is re-armed for just after the
+  // window resets. Always on for such runs (SPEC section 8) — cancelling the
+  // schedule from the dashboard is the opt-out.
+  dispatcher.on('rate-limited', (run: RunHandle) => {
+    if (!run.sessionId) return
+    const resetsAtMs = run.lastRateLimit?.resetsAt != null ? run.lastRateLimit.resetsAt * 1000 : null
+    const runAtMs = resetsAtMs !== null && resetsAtMs > Date.now()
+      ? resetsAtMs + 60_000               // a minute of slack after the reset
+      : Date.now() + 30 * 60_000          // no usable reset time: try in half an hour
+    scheduler.add({
+      kind: 'resume-run', projectId: run.projectId, taskId: null,
+      sessionId: run.sessionId, prompt: 'continue',
+      runAt: new Date(runAtMs).toISOString(),
+      note: `auto-continue after ${run.lastRateLimit?.rateLimitType ?? 'rate limit'}`,
+    })
+  })
+
+  // Started only now, with the fire listener attached: jobs left over from a
+  // previous process may fire the moment they load.
+  scheduler.start()
   registerHookRoutes(app, store, registry, session =>
     hub.broadcast({ type: 'session.updated', session }))
   registerPermissionRoutes(app, permissionBroker)
@@ -272,6 +387,8 @@ export async function buildServer(
     alerts.stop()
     if (spendTimer) clearTimeout(spendTimer)
     agentsPoller.stop()
+    scheduler.stop()
+    historyDb.close()
     await Promise.all([watcher.stop(), tasksWatcher.stop(), sessionsRegistry.stop()])
   })
 
@@ -282,6 +399,9 @@ export async function buildServer(
 if (import.meta.url === `file://${process.argv[1]}`) {
   const app = await buildServer()
   await app.listen({ host: HOST, port: PORT })
+  if (!isLoopbackHost(HOST)) {
+    app.log.warn(`MC_HOST=${HOST} exposes the dashboard beyond localhost; the ?token= URL is the only key`)
+  }
   // The token reaches the browser through this URL once, then lives in
   // localStorage. In dev the UI is on the Vite port — same query works there.
   app.log.info(`dashboard: http://${HOST}:${PORT}/?token=${app.authToken} ` +

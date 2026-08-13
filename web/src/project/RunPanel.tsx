@@ -1,15 +1,17 @@
-import { ChevronRight, GitBranch, Square } from 'lucide-react'
+import { ChevronRight, Clock, GitBranch, RotateCcw, Square } from 'lucide-react'
 import { money } from '../shared/usage-format.js'
+import { clockTime } from '../shared/format.js'
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '../shared/api.js'
 import type { RunDiff, RunHandle, RunStatus } from '../shared/types.js'
 import { FOCUS_RING } from '../shared/focus.js'
 
 const STATUS_TEXT: Record<RunStatus, string> = {
-  running: 'text-work',
-  succeeded: 'text-muted',
-  failed: 'text-danger',
-  cancelled: 'text-alarm',
+  'running': 'text-work',
+  'awaiting-input': 'text-alarm',
+  'succeeded': 'text-muted',
+  'failed': 'text-danger',
+  'cancelled': 'text-alarm',
 }
 
 /** Tint a raw patch line with the existing tokens: additions work-green, deletions danger-red. */
@@ -24,6 +26,15 @@ function patchLineClass(line: string): string {
 
 const ACTION_BUTTON = `inline-flex items-center gap-1.5 rounded-[5px] border border-neutral-700 px-2 py-1
   text-[11px] text-faint disabled:opacity-50 ${FOCUS_RING}`
+
+/** What names the run in the header: its task id, or what kind of taskless run it is. */
+function runLabel(run: RunHandle): string {
+  if (run.taskId) return run.taskId
+  if (run.kind === 'resume') {
+    return run.sessionId ? `resume ${run.sessionId.slice(0, 8)}` : 'resume'
+  }
+  return 'prompt'
+}
 
 /**
  * Diff review for a finished worktree run: the file list and patch behind a
@@ -112,16 +123,87 @@ function WorktreeReview({ run }: { run: RunHandle }) {
 }
 
 /**
+ * Steering for a live run: a follow-up message goes into the run's stdin and
+ * starts a new turn in the same session. While the run is 'awaiting-input' a
+ * Finish button closes stdin so the run concludes and can be reviewed.
+ */
+function SteerControls({ run }: { run: RunHandle }) {
+  const [text, setText] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const awaiting = run.status === 'awaiting-input'
+
+  const post = async (path: 'input' | 'finish', body?: { text: string }): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    const res = await apiFetch(`/api/runs/${run.runId}/${path}`, {
+      method: 'POST',
+      ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
+    })
+    setBusy(false)
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}))
+      setError(errBody.error ?? `${path} failed (${res.status})`)
+      return
+    }
+    if (path === 'input') setText('')
+  }
+
+  return (
+    <form
+      data-testid="run-steer"
+      onSubmit={e => { e.preventDefault(); if (text.trim()) void post('input', { text: text.trim() }) }}
+      className="mt-2 flex flex-wrap items-center gap-2"
+    >
+      <input
+        value={text}
+        onChange={e => setText(e.target.value)}
+        placeholder={awaiting ? 'the run is waiting — steer it or finish' : 'queue a follow-up message'}
+        aria-label="Steer this run"
+        className={`min-w-0 flex-1 rounded-[5px] border border-neutral-700 bg-neutral-950 px-2.5 py-1
+          font-mono text-[11.5px] text-muted placeholder:text-dim ${FOCUS_RING}`}
+      />
+      <button type="submit" disabled={busy || !text.trim()} className={`${ACTION_BUTTON} hover:text-work`}>
+        send
+      </button>
+      {awaiting && (
+        <button
+          type="button"
+          onClick={() => void post('finish')}
+          disabled={busy}
+          className={`${ACTION_BUTTON} border-alarm/40 text-alarm hover:border-alarm`}
+        >
+          finish run
+        </button>
+      )}
+      {error && (
+        <p data-testid="run-steer-error" className="w-full font-mono text-[11.5px] break-words text-danger">{error}</p>
+      )}
+    </form>
+  )
+}
+
+/**
  * A dispatched `claude -p` run. While it streams it is a "working" element:
  * green-tinted surface, an orbiting indicator, and a block caret at the end of
  * the log. Finished runs are static and collapse behind a summary line.
  */
 export function RunPanel(
-  { run, output, onCancel, collapsed = false }:
-  { run: RunHandle; output: string; onCancel: (runId: string) => void; collapsed?: boolean },
+  { run, output, onCancel, onRetry, collapsed = false, autoContinueAt = null }:
+  {
+    run: RunHandle
+    output: string
+    onCancel: (runId: string) => void
+    /** Re-dispatches a failed or cancelled run with its original input. */
+    onRetry?: (runId: string) => void
+    collapsed?: boolean
+    /** When a pending schedule will resume this run's session — a rate-limited run that re-armed. */
+    autoContinueAt?: string | null
+  },
 ) {
   const log = useRef<HTMLPreElement>(null)
   const running = run.status === 'running'
+  const awaiting = run.status === 'awaiting-input'
 
   // The old sentinel `<div>` inside the <pre> called scrollIntoView() on every
   // chunk, which scrolls *all* scrollable ancestors including the window — a
@@ -143,14 +225,19 @@ export function RunPanel(
           <span className="absolute top-1/2 left-1/2 size-[7px] -translate-1/2 rounded-full bg-work" />
         </span>
       )}
+      {awaiting && (
+        <span aria-hidden="true" className="relative size-3 shrink-0">
+          <span className="absolute top-1/2 left-1/2 size-[7px] -translate-1/2 animate-pulse rounded-full bg-alarm" />
+        </span>
+      )}
       <span
         data-testid="run-status"
         role="status"
         className={`text-[10.5px] tracking-[0.12em] uppercase ${STATUS_TEXT[run.status] ?? 'text-faint'}`}
       >
-        {running ? 'run streaming' : run.status}
+        {running ? 'run streaming' : awaiting ? 'awaiting input' : run.status}
       </span>
-      <span className="text-muted">{run.taskId} · claude -p</span>
+      <span className="text-muted">{runLabel(run)} · claude -p</span>
       {run.branch && (
         <span data-testid="run-branch" className="inline-flex min-w-0 items-center gap-1 text-dim">
           <GitBranch aria-hidden="true" className="size-3 shrink-0" />
@@ -166,7 +253,23 @@ export function RunPanel(
           <span className="text-dim"> reported by claude</span>
         </span>
       )}
+      {autoContinueAt !== null && (
+        <span data-testid="run-auto-continue" className="inline-flex shrink-0 items-center gap-1 text-alarm">
+          <Clock aria-hidden="true" className="size-3" />
+          auto-continue at {clockTime(autoContinueAt)}
+        </span>
+      )}
       {run.sessionId && <span className="min-w-0 truncate text-dim">{run.sessionId}</span>}
+      {onRetry && (run.status === 'failed' || run.status === 'cancelled') && (
+        <button
+          data-testid="run-retry"
+          onClick={e => { e.preventDefault(); onRetry(run.runId) }}
+          className={`ml-auto inline-flex items-center gap-1.5 rounded-[5px] border border-neutral-700 px-2 py-1 text-[11px] text-faint hover:text-work ${FOCUS_RING}`}
+        >
+          <RotateCcw aria-hidden="true" className="size-3" />
+          retry
+        </button>
+      )}
       {run.endedAt === null && (
         <button
           onClick={() => onCancel(run.runId)}
@@ -193,6 +296,7 @@ export function RunPanel(
           />
         )}
       </pre>
+      {(running || awaiting) && <SteerControls run={run} />}
       {run.endedAt !== null && run.isolation === 'worktree' && run.diffAvailable && (
         <WorktreeReview run={run} />
       )}
@@ -202,10 +306,12 @@ export function RunPanel(
   return (
     <section
       data-testid="run-panel"
-      aria-label={`Run ${run.taskId}`}
+      aria-label={`Run ${runLabel(run)}`}
       className={running
         ? 'rounded-[10px] border border-work/25 bg-work/[0.04]'
-        : 'rounded-[10px] border border-neutral-800 bg-neutral-900'}
+        : awaiting
+          ? 'rounded-[10px] border border-alarm/25 bg-alarm/[0.04]'
+          : 'rounded-[10px] border border-neutral-800 bg-neutral-900'}
     >
       {collapsed
         ? (

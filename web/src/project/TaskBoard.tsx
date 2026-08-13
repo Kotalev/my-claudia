@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Play } from 'lucide-react'
-import type { Task, TaskStatus, TasksDoc } from '../shared/types.js'
+import { Clock, Play, X } from 'lucide-react'
+import type { ScheduleJob, Task, TaskStatus, TasksDoc } from '../shared/types.js'
 import { FOCUS_RING } from '../shared/focus.js'
+import { clockTime } from '../shared/format.js'
 
 const COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: 'todo', label: 'todo' },
@@ -19,14 +20,88 @@ const CHECKBOX: Record<TaskStatus, string> = {
   todo: '[ ]', 'in-progress': '[~]', done: '[x]',
 }
 
+/**
+ * The inline "run this later" affordance: a clock button that unfolds a
+ * datetime-local input. Submitting posts the schedule; the pending line under
+ * the card arrives over the socket, so this only has to close itself.
+ */
+function ScheduleControl({ task, onSchedule }: { task: Task; onSchedule: (task: Task, atIso: string) => Promise<void> }) {
+  const [open, setOpen] = useState(false)
+  const [value, setValue] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const submit = async (): Promise<void> => {
+    const at = new Date(value)
+    if (Number.isNaN(at.getTime())) { setError('pick a time'); return }
+    setBusy(true)
+    setError(null)
+    try {
+      await onSchedule(task, at.toISOString())
+      setOpen(false)
+      setValue('')
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        data-testid="schedule-button"
+        aria-label={`Schedule ${task.id} to run later`}
+        aria-expanded={open}
+        title="Run at a chosen time"
+        onClick={() => { setOpen(v => !v); setError(null) }}
+        className={`inline-flex shrink-0 items-center gap-1.5 rounded border border-neutral-700 px-[7px] py-0.5
+          ${open ? 'text-neutral-200' : 'text-faint'} hover:text-neutral-200 ${FOCUS_RING}`}
+      >
+        <Clock aria-hidden="true" className="size-2.5" />
+        later
+      </button>
+      {open && (
+        <form
+          data-testid="schedule-form"
+          onSubmit={e => { e.preventDefault(); void submit() }}
+          className="flex w-full flex-wrap items-center gap-[7px]"
+        >
+          <input
+            type="datetime-local"
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            aria-label={`Run ${task.id} at`}
+            className={`rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 font-mono
+              text-[10.5px] text-muted [color-scheme:dark] ${FOCUS_RING}`}
+          />
+          <button
+            type="submit"
+            disabled={busy || value === ''}
+            className={`rounded border border-work/30 px-[7px] py-0.5 text-work hover:bg-work/10 disabled:opacity-40 ${FOCUS_RING}`}
+          >
+            schedule
+          </button>
+          {error && <span data-testid="schedule-error" className="w-full break-words text-danger">{error}</span>}
+        </form>
+      )}
+    </>
+  )
+}
+
 function TaskCard(
-  { task, onAdvance, onDispatch, dispatchBusy, running }:
+  { task, onAdvance, onDispatch, dispatchBusy, running, schedules = [], onSchedule, onCancelSchedule }:
   {
     task: Task
     onAdvance: (task: Task) => void
     onDispatch?: (task: Task) => void
     dispatchBusy: boolean
     running: boolean
+    /** Pending schedules for THIS task only. */
+    schedules?: ScheduleJob[]
+    onSchedule?: (task: Task, atIso: string) => Promise<void>
+    onCancelSchedule?: (scheduleId: string) => void
   },
 ) {
   // Advancing a done task rewrites the user's TASKS.md back to Todo with no
@@ -86,15 +161,42 @@ function TaskCard(
               <button
                 data-testid="dispatch-button"
                 onClick={() => onDispatch(task)}
-                disabled={dispatchBusy}
-                title={dispatchBusy ? 'A run is already active for this project' : undefined}
+                // Only this task's own live run blocks a re-dispatch; a busy
+                // project queues the dispatch server-side instead of refusing.
+                disabled={running}
+                title={dispatchBusy && !running ? 'Queues behind the running dispatch' : undefined}
                 className={`ml-auto inline-flex shrink-0 items-center gap-1.5 rounded border border-work/30 px-[7px] py-0.5 text-work hover:bg-work/10 disabled:opacity-40 ${FOCUS_RING}`}
               >
                 <Play aria-hidden="true" className={`size-2.5 ${running ? 'animate-pulse' : ''}`} />
-                {running ? 'running…' : 'run'}
+                {running ? 'running…' : dispatchBusy ? 'queue' : 'run'}
               </button>
             )}
+            {onSchedule && task.status !== 'done' && (
+              <ScheduleControl task={task} onSchedule={onSchedule} />
+            )}
           </div>
+          {schedules.length > 0 && (
+            <div className="mt-1.5 space-y-0.5">
+              {schedules.map(s => (
+                <p key={s.id} data-testid="task-schedule" className="flex items-center gap-1.5 font-mono text-[10.5px] text-alarm">
+                  <Clock aria-hidden="true" className="size-2.5 shrink-0" />
+                  runs at {clockTime(s.runAt)}
+                  {onCancelSchedule && (
+                    <button
+                      type="button"
+                      data-testid="schedule-cancel"
+                      aria-label={`Cancel the schedule at ${clockTime(s.runAt)}`}
+                      title="Cancel this schedule"
+                      onClick={() => onCancelSchedule(s.id)}
+                      className={`-m-1 rounded p-1 text-faint hover:text-danger ${FOCUS_RING}`}
+                    >
+                      <X aria-hidden="true" className="size-3" />
+                    </button>
+                  )}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </article>
@@ -119,11 +221,16 @@ const COLUMN_HEADER: Record<TaskStatus, { border: string; label: string }> = {
 }
 
 export function TaskBoard(
-  { doc, onAdvance, onDispatch, dispatchBusy = false, runningTaskId = null, loading = false }:
+  { doc, onAdvance, onDispatch, dispatchBusy = false, runningTaskIds = [], loading = false,
+    schedules = [], onSchedule, onCancelSchedule }:
   {
     doc: TasksDoc
     onAdvance: (task: Task) => void
     onDispatch?: (task: Task) => void
+    /** Pending schedules for this project; each card shows only its own. */
+    schedules?: ScheduleJob[]
+    onSchedule?: (task: Task, atIso: string) => Promise<void>
+    onCancelSchedule?: (scheduleId: string) => void
     /**
      * One run per project. The button is disabled rather than removed: it used
      * to vanish from every card at once, which silently reflowed the board and
@@ -131,7 +238,7 @@ export function TaskBoard(
      */
     dispatchBusy?: boolean
     /** The task the active run is working on, so its own card can say so. */
-    runningTaskId?: string | null
+    runningTaskIds?: string[]
     loading?: boolean
   },
 ) {
@@ -182,7 +289,10 @@ export function TaskBoard(
                         onAdvance={onAdvance}
                         onDispatch={onDispatch}
                         dispatchBusy={dispatchBusy}
-                        running={runningTaskId === task.id}
+                        running={runningTaskIds.includes(task.id)}
+                        schedules={schedules.filter(s => s.taskId === task.id)}
+                        onSchedule={onSchedule}
+                        onCancelSchedule={onCancelSchedule}
                       />
                     )
               ))}

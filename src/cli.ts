@@ -8,8 +8,14 @@ process.env.NODE_ENV ??= 'production'
 export {}
 
 const { buildServer } = await import('./server/index.js')
-const { HOST, PORT } = await import('./shared/config.js')
+const { HOST, PORT, isLoopbackHost } = await import('./shared/config.js')
 
 const app = await buildServer()
 await app.listen({ host: HOST, port: PORT })
-app.log.info(`dashboard: http://${HOST}:${PORT}/?token=${app.authToken}`)
+// Plain console lines, not the structured log: this URL is the one thing a
+// person starting the server by hand needs to copy.
+if (!isLoopbackHost(HOST)) {
+  console.log(`\n  WARNING: MC_HOST=${HOST} exposes the dashboard beyond localhost.` +
+    `\n  The ?token= in the URL below is the only key — share the URL, share the dashboard.`)
+}
+console.log(`\n  dashboard: http://${HOST}:${PORT}/?token=${app.authToken}\n`)

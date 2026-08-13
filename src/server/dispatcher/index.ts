@@ -1,5 +1,5 @@
-export type { RunHandle, RunStatus } from '../../shared/types.js'
-import type { RunHandle, RunStatus } from '../../shared/types.js'
+export type { DispatchInput, RunHandle, RunKind, RunStatus } from '../../shared/types.js'
+import type { DispatchInput, RateLimitInfo, RunHandle, RunStatus } from '../../shared/types.js'
 import { EventEmitter } from 'node:events'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -9,9 +9,17 @@ import { createWorktree, isGitRepo } from './worktree.js'
 
 
 interface Run extends RunHandle {
+  /** The exact input that started the run, kept so a retry can replay it. Never on the public handle. */
+  input: DispatchInput
   child: ChildProcess
   timer: NodeJS.Timeout
   buffer: string
+  /** User messages written to stdin that have not yet been answered by a `result` event. */
+  turnsInFlight: number
+  /** stdin was ended (finishInput); no more steering is possible. */
+  stdinEnded: boolean
+  /** Fires while 'awaiting-input' so an unattended run cannot idle forever. */
+  idleTimer: NodeJS.Timeout | null
 }
 
 export interface DispatcherOptions {
@@ -19,17 +27,21 @@ export interface DispatcherOptions {
   /** Injected before the real flags; the test harness uses it to run a fake binary. */
   extraArgs?: string[]
   timeoutMs?: number
+  /** How long a run may sit in 'awaiting-input' before its stdin is closed for it. */
+  idleMs?: number
   /** Where linked worktrees live — outside every project tree. */
   worktreesRoot?: string
 }
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
+const DEFAULT_IDLE_MS = 10 * 60 * 1000
 
 export class Dispatcher extends EventEmitter {
   #runs = new Map<string, Run>()
   #bin: string
   #extraArgs: string[]
   #timeoutMs: number
+  #idleMs: number
   #worktreesRoot: string
 
   constructor(opts: DispatcherOptions = {}) {
@@ -37,6 +49,7 @@ export class Dispatcher extends EventEmitter {
     this.#bin = opts.claudeBin ?? 'claude'
     this.#extraArgs = opts.extraArgs ?? []
     this.#timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    this.#idleMs = opts.idleMs ?? DEFAULT_IDLE_MS
     this.#worktreesRoot = opts.worktreesRoot ?? join(process.cwd(), '.worktrees')
   }
 
@@ -49,13 +62,36 @@ export class Dispatcher extends EventEmitter {
     return run ? this.#handle(run) : undefined
   }
 
-  async start(input: { projectId: string; projectPath: string; taskId: string; prompt: string }): Promise<RunHandle> {
-    const worktreeIsolated = isGitRepo(input.projectPath)
-    if (!worktreeIsolated) {
+  /**
+   * True when `start` would refuse this input right now because an in-place
+   * run already holds its project. Worktree-isolated inputs never block. The
+   * DispatchQueue asks this instead of catching the throw, so validation
+   * errors (a resume without a session id) still surface as errors.
+   */
+  wouldBlock(input: DispatchInput): boolean {
+    const kind = input.kind ?? 'task'
+    if (kind !== 'resume' && isGitRepo(input.projectPath)) return false
+    return [...this.#runs.values()].some(r => r.projectId === input.projectId && r.endedAt === null)
+  }
+
+  /** The exact input that started a run, for a retry. A copy — the caller may edit its prompt. */
+  originalInput(runId: string): DispatchInput | undefined {
+    const run = this.#runs.get(runId)
+    return run ? { ...run.input } : undefined
+  }
+
+  async start(input: DispatchInput): Promise<RunHandle> {
+    const kind = input.kind ?? 'task'
+    if (kind === 'resume' && !input.resumeSessionId) {
+      throw new Error('a resume run needs a resumeSessionId')
+    }
+    // A resumed session's history references paths inside the real project
+    // tree, so resume runs always run in place — never in a worktree.
+    const worktreeIsolated = kind !== 'resume' && isGitRepo(input.projectPath)
+    if (!worktreeIsolated && this.wouldBlock(input)) {
       // In-place runs share the project directory, so they keep the old
       // 1-per-project guard. Worktree runs each get their own tree instead.
-      const live = [...this.#runs.values()].find(r => r.projectId === input.projectId && r.endedAt === null)
-      if (live) throw new Error(`a run is already running for project ${input.projectId}`)
+      throw new Error(`a run is already running for project ${input.projectId}`)
     }
 
     const runId = randomUUID()
@@ -69,20 +105,30 @@ export class Dispatcher extends EventEmitter {
       baseCommit = wt.base
     }
 
-    // The prompt is one argv element — never interpolated into a shell string.
-    // No --bare: the target project's CLAUDE.md and hooks must load.
-    const args = [...this.#extraArgs, '-p', input.prompt, '--output-format', 'stream-json', '--verbose']
+    // The prompt travels over stdin as a stream-json user message, never through
+    // a shell string. No --bare: the target project's CLAUDE.md and hooks must load.
+    // Verified 2026-08-13: `--resume` combines with `--input-format stream-json`
+    // and continues the SAME session id with full first-turn context.
+    const args = [...this.#extraArgs, '-p']
+    if (kind === 'resume') args.push('--resume', input.resumeSessionId!)
+    args.push('--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose')
     const child = spawn(this.#bin, args, {
       cwd: worktreeDir ?? input.projectPath,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
     })
+    // A run that dies mid-write must not crash the server with an EPIPE.
+    child.stdin?.on('error', () => {})
 
     const run: Run = {
       runId,
       projectId: input.projectId,
       taskId: input.taskId,
-      sessionId: null, costUsd: null, numTurns: null,
+      kind,
+      // A resume run's session id is known before the child says a word; the
+      // init event will only ever confirm it (verified: --resume keeps the id).
+      sessionId: kind === 'resume' ? input.resumeSessionId! : null,
+      costUsd: null, numTurns: null,
       status: 'running',
       startedAt: new Date().toISOString(),
       endedAt: null,
@@ -94,11 +140,17 @@ export class Dispatcher extends EventEmitter {
       diffAvailable: worktreeIsolated,
       merged: false,
       discarded: false,
+      lastRateLimit: null,
+      input: { ...input },
       child,
       buffer: '',
+      turnsInFlight: 0,
+      stdinEnded: false,
+      idleTimer: null,
       timer: setTimeout(() => this.cancel(runId), this.#timeoutMs),
     }
     this.#runs.set(runId, run)
+    this.#writeUserMessage(run, input.prompt)
 
     // Consume stdout eagerly: a slow consumer stalls claude's own output.
     child.stdout?.setEncoding('utf8')
@@ -114,6 +166,35 @@ export class Dispatcher extends EventEmitter {
 
     this.#update(run)
     return this.#handle(run)
+  }
+
+  /**
+   * Sends a follow-up user message into a live run's stdin, starting a new turn
+   * in the same session. False once the run has ended or its input was closed.
+   */
+  steer(runId: string, text: string): boolean {
+    const run = this.#runs.get(runId)
+    if (!run || run.endedAt !== null || run.stdinEnded) return false
+    this.#writeUserMessage(run, text)
+    // The steered message is part of the run's story: show it in the feed.
+    this.emit('output', { runId, chunk: `> you: ${text}\n` })
+    if (run.status === 'awaiting-input') run.status = 'running'
+    this.#clearIdle(run)
+    // A steered run earned a fresh supervisor window.
+    clearTimeout(run.timer)
+    run.timer = setTimeout(() => this.cancel(runId), this.#timeoutMs)
+    this.#update(run)
+    return true
+  }
+
+  /** Ends the run's stdin so `claude` finishes up and exits on its own. */
+  finishInput(runId: string): boolean {
+    const run = this.#runs.get(runId)
+    if (!run || run.endedAt !== null || run.stdinEnded) return false
+    run.stdinEnded = true
+    this.#clearIdle(run)
+    run.child.stdin?.end()
+    return true
   }
 
   cancel(runId: string): boolean {
@@ -155,7 +236,14 @@ export class Dispatcher extends EventEmitter {
       try {
         const msg = JSON.parse(line) as {
           type?: string; subtype?: string; session_id?: string
-          total_cost_usd?: unknown; num_turns?: unknown
+          total_cost_usd?: unknown; num_turns?: unknown; rate_limit_info?: unknown
+        }
+        // The stream reports the account's rate-limit standing as it changes.
+        // Only the latest one matters: it is what decides, at failure time,
+        // whether the run died rate-limited and when to auto-continue.
+        if (msg.type === 'rate_limit_event') {
+          const info = parseRateLimitInfo(msg.rate_limit_info)
+          if (info !== null) run.lastRateLimit = info
         }
         if (run.sessionId === null && msg.subtype === 'init' && msg.session_id) {
           run.sessionId = msg.session_id
@@ -170,6 +258,14 @@ export class Dispatcher extends EventEmitter {
           if (typeof msg.num_turns === 'number' && Number.isFinite(msg.num_turns)) {
             run.numTurns = msg.num_turns
           }
+          // The turn is answered; with nothing else queued the process now sits
+          // waiting on stdin. Surface that instead of pretending it still works,
+          // and cap the wait so no zombie `claude` outlives an absent user.
+          run.turnsInFlight = Math.max(0, run.turnsInFlight - 1)
+          if (run.turnsInFlight === 0 && !run.stdinEnded && run.endedAt === null && run.status === 'running') {
+            run.status = 'awaiting-input'
+            run.idleTimer = setTimeout(() => this.finishInput(run.runId), this.#idleMs)
+          }
           this.#update(run)
         }
       } catch { /* partial or non-JSON output is expected; keep scanning */ }
@@ -178,21 +274,58 @@ export class Dispatcher extends EventEmitter {
     }
   }
 
+  /** One stream-json user message, one stdin line. Text goes through JSON.stringify only. */
+  #writeUserMessage(run: Run, text: string): void {
+    const line = JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } })
+    run.child.stdin?.write(`${line}\n`)
+    run.turnsInFlight += 1
+  }
+
+  #clearIdle(run: Run): void {
+    if (run.idleTimer !== null) { clearTimeout(run.idleTimer); run.idleTimer = null }
+  }
+
   #finish(run: Run, code: number | null, status: RunStatus): void {
     if (run.endedAt !== null) return
     clearTimeout(run.timer)
+    this.#clearIdle(run)
     run.endedAt = new Date().toISOString()
     run.exitCode = code
     run.status = status
     this.#update(run)
+    // A failed run whose last rate-limit standing was anything but 'allowed'
+    // (open set: 'rejected', 'queued', whatever future values appear) died
+    // rate-limited; the server can re-arm it once the window resets.
+    if (status === 'failed' && run.lastRateLimit != null && run.lastRateLimit.status !== 'allowed') {
+      this.emit('rate-limited', this.#handle(run))
+    }
   }
 
   #handle(run: Run): RunHandle {
-    const { child: _child, timer: _timer, buffer: _buffer, ...handle } = run
+    const {
+      input: _input, child: _child, timer: _timer, buffer: _buffer,
+      turnsInFlight: _turns, stdinEnded: _stdinEnded, idleTimer: _idleTimer,
+      ...handle
+    } = run
     return handle
   }
 
   #update(run: Run): void {
     this.emit('update', this.#handle(run))
+  }
+}
+
+/**
+ * Tolerant read of a `rate_limit_event`'s payload. Anything without a string
+ * `status` is not usable — null, so the previous good value survives garbage.
+ */
+function parseRateLimitInfo(raw: unknown): RateLimitInfo | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const info = raw as { status?: unknown; resetsAt?: unknown; rateLimitType?: unknown }
+  if (typeof info.status !== 'string') return null
+  return {
+    status: info.status,
+    resetsAt: typeof info.resetsAt === 'number' && Number.isFinite(info.resetsAt) ? info.resetsAt : null,
+    rateLimitType: typeof info.rateLimitType === 'string' ? info.rateLimitType : null,
   }
 }

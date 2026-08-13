@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../shared/api.js'
 import { ArrowLeft, MessagesSquare } from 'lucide-react'
-import type { ProjectRecord, RunHandle, SessionSummary, Task, TasksDoc } from '../shared/types.js'
+import type { ProjectRecord, QueuedDispatch, RunHandle, ScheduleJob, SessionSummary, Task, TasksDoc } from '../shared/types.js'
 import { NewTaskForm } from './NewTaskForm.js'
+import { PromptRunForm } from './PromptRunForm.js'
 import { NEXT_STATUS, TaskBoard } from './TaskBoard.js'
 import { SessionRow } from '../overview/SessionRow.js'
 import { RunPanel } from './RunPanel.js'
@@ -19,14 +20,25 @@ const EMPTY_DOC: TasksDoc = {
 /** Finished runs kept on screen before the rest go behind a toggle. */
 const VISIBLE_FINISHED_RUNS = 3
 
+/** What names a queued dispatch: its task id, or what kind of taskless run it will be. */
+function queuedLabel(q: QueuedDispatch): string {
+  if (q.input.taskId) return q.input.taskId
+  if (q.input.kind === 'resume') {
+    return q.input.resumeSessionId ? `resume ${q.input.resumeSessionId.slice(0, 8)}` : 'resume'
+  }
+  return 'prompt'
+}
+
 export function ProjectView(
-  { project, sessions, doc, runs, runOutput, onBack, onOpenSession }:
+  { project, sessions, doc, runs, runOutput, schedules, queue, onBack, onOpenSession }:
   {
     project: ProjectRecord
     sessions: SessionSummary[]
     doc: TasksDoc | undefined
     runs: RunHandle[]
     runOutput: Record<string, string>
+    schedules: ScheduleJob[]
+    queue: QueuedDispatch[]
     onBack: () => void
     onOpenSession: (id: string) => void
   },
@@ -85,9 +97,56 @@ export function ProjectView(
     setError(null)
   }, [project.id])
 
+  const dispatchPrompt = useCallback(async (text: string) => {
+    const res = await apiFetch(`/api/projects/${project.id}/prompt`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.error ?? `could not start the run (${res.status})`)
+    }
+  }, [project.id])
+
   const cancelRun = useCallback((runId: string) => {
     void apiFetch(`/api/runs/${runId}/cancel`, { method: 'POST' })
   }, [])
+
+  const retryRun = useCallback(async (runId: string) => {
+    const res = await apiFetch(`/api/runs/${runId}/retry`, { method: 'POST' })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setError(body.error ?? `retry failed (${res.status})`)
+      return
+    }
+    setError(null)
+  }, [])
+
+  const cancelQueued = useCallback((queueId: string) => {
+    void apiFetch(`/api/queue/${queueId}`, { method: 'DELETE' })
+  }, [])
+
+  const scheduleTask = useCallback(async (task: Task, atIso: string) => {
+    const res = await apiFetch(`/api/projects/${project.id}/tasks/${task.id}/schedule`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ at: atIso }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.error ?? `could not schedule the task (${res.status})`)
+    }
+  }, [project.id])
+
+  const cancelSchedule = useCallback((scheduleId: string) => {
+    void apiFetch(`/api/schedules/${scheduleId}`, { method: 'DELETE' })
+  }, [])
+
+  /** The pending auto-continue for a run's session, so its panel can say when. */
+  const autoContinueAt = useCallback((run: RunHandle): string | null =>
+    schedules.find(s => s.kind === 'resume-run' && s.sessionId !== null && s.sessionId === run.sessionId)
+      ?.runAt ?? null, [schedules])
 
   // Every run ever dispatched used to stay expanded above the board for the
   // lifetime of the server process — three finished runs put ~870px of log
@@ -122,14 +181,32 @@ export function ProjectView(
       <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]">
         <div className="min-w-0 space-y-4">
           <NewTaskForm onCreate={createTask} />
+          <PromptRunForm onDispatch={dispatchPrompt} />
           {error && <ErrorLine testId="dispatch-error" className="rounded-lg border border-red-900 bg-red-950/40 px-3 py-2">{error}</ErrorLine>}
           {loadError && <ErrorLine testId="tasks-error" className="rounded-lg border border-red-900 bg-red-950/40 px-3 py-2">{loadError} — the board below may be incomplete.</ErrorLine>}
 
           {activeRuns.map(run => (
-            <RunPanel key={run.runId} run={run} output={runOutput[run.runId] ?? ''} onCancel={cancelRun} />
+            <RunPanel key={run.runId} run={run} output={runOutput[run.runId] ?? ''} onCancel={cancelRun} onRetry={retryRun} autoContinueAt={autoContinueAt(run)} />
+          ))}
+          {queue.map(q => (
+            <div
+              key={q.queueId}
+              data-testid="queued-dispatch"
+              className="flex flex-wrap items-center gap-2.5 rounded-[10px] border border-dashed border-neutral-800 bg-neutral-900/60 px-3.5 py-2.5 font-mono text-[11.5px]"
+            >
+              <span className="text-[10.5px] tracking-[0.12em] uppercase text-dim">queued</span>
+              <span className="text-faint">{queuedLabel(q)} · claude -p</span>
+              <span className="text-dim">waits for the running dispatch</span>
+              <button
+                onClick={() => cancelQueued(q.queueId)}
+                className={`ml-auto inline-flex items-center gap-1.5 rounded-[5px] border border-neutral-700 px-2 py-1 text-[11px] text-faint hover:text-danger ${FOCUS_RING}`}
+              >
+                cancel
+              </button>
+            </div>
           ))}
           {shownFinished.map(run => (
-            <RunPanel key={run.runId} run={run} output={runOutput[run.runId] ?? ''} onCancel={cancelRun} collapsed />
+            <RunPanel key={run.runId} run={run} output={runOutput[run.runId] ?? ''} onCancel={cancelRun} onRetry={retryRun} autoContinueAt={autoContinueAt(run)} collapsed />
           ))}
           {finishedRuns.length > VISIBLE_FINISHED_RUNS && (
             <button
@@ -147,10 +224,13 @@ export function ProjectView(
             loading={loading}
             onAdvance={advance}
             onDispatch={dispatch}
+            schedules={schedules}
+            onSchedule={scheduleTask}
+            onCancelSchedule={cancelSchedule}
             // Worktree-isolated runs may overlap; only an in-place run (non-git
             // project) still blocks the next dispatch.
             dispatchBusy={activeRuns.some(r => r.isolation !== 'worktree')}
-            runningTaskId={activeRuns[0]?.taskId ?? null}
+            runningTaskIds={activeRuns.map(r => r.taskId).filter((id): id is string => id !== null)}
           />
         </div>
 

@@ -49,3 +49,37 @@ describe('isAllowedOrigin', () => {
     expect(isAllowedOrigin('null')).toBe(false)
   })
 })
+
+describe('MC_HOST opt-in (non-loopback bind)', () => {
+  it('accepts the configured host, with or without a port', () => {
+    expect(isAllowedHost('192.168.1.10:4517', '192.168.1.10')).toBe(true)
+    expect(isAllowedHost('192.168.1.10', '192.168.1.10')).toBe(true)
+    expect(isAllowedOrigin('http://192.168.1.10:4517', '192.168.1.10')).toBe(true)
+  })
+
+  it('still accepts loopback alongside the configured host', () => {
+    expect(isAllowedHost('127.0.0.1:4517', '192.168.1.10')).toBe(true)
+    expect(isAllowedOrigin('http://localhost:4518', '192.168.1.10')).toBe(true)
+  })
+
+  it('still rejects other hosts', () => {
+    expect(isAllowedHost('evil.tld:4517', '192.168.1.10')).toBe(false)
+    expect(isAllowedOrigin('https://evil.tld', '192.168.1.10')).toBe(false)
+  })
+
+  it('matches a bracketed IPv6 host header against a bare MC_HOST', () => {
+    expect(isAllowedHost('[fd00::1]:4517', 'fd00::1')).toBe(true)
+    expect(isAllowedOrigin('http://[fd00::1]:4517', 'fd00::1')).toBe(true)
+  })
+
+  it('accepts any host on a wildcard bind — the Host header carries the LAN address', () => {
+    expect(isAllowedHost('192.168.1.10:4517', '0.0.0.0')).toBe(true)
+    expect(isAllowedHost('my-laptop.local:4517', '0.0.0.0')).toBe(true)
+    expect(isAllowedOrigin('http://192.168.1.10:4517', '0.0.0.0')).toBe(true)
+  })
+
+  it('still rejects a missing host header on a wildcard bind', () => {
+    expect(isAllowedHost(undefined, '0.0.0.0')).toBe(false)
+    expect(isAllowedHost('', '0.0.0.0')).toBe(false)
+  })
+})

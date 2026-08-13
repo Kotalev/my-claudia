@@ -6,9 +6,16 @@ export type {
   SessionStatus,
   SessionSummary,
   RunStatus,
+  RunKind,
   RunHandle,
   RunDiff,
   RunDiffFile,
+  RateLimitInfo,
+  ScheduleKind,
+  ScheduleJob,
+  DispatchInput,
+  QueuedDispatch,
+  PromptTemplate,
 } from '@shared/types.js'
 
 export type {

@@ -46,7 +46,13 @@ export interface SessionSummary {
   reportedCostUsd: number | null
 }
 
-export type RunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
+export type RunStatus = 'running' | 'awaiting-input' | 'succeeded' | 'failed' | 'cancelled'
+
+/**
+ * What started the run: a TASKS.md task, a free prompt, or the continuation of
+ * an existing session via `--resume`.
+ */
+export type RunKind = 'task' | 'prompt' | 'resume'
 
 /**
  * Where a dispatched run's working tree lives. `worktree` means a linked git
@@ -69,10 +75,54 @@ export interface RunDiff {
   patch: string
 }
 
+/**
+ * The most recent `rate_limit_event` seen on a run's output stream. `status`
+ * is an open set — anything other than `'allowed'` at failure time means the
+ * run died rate-limited. `resetsAt` is epoch SECONDS (verified 2026-08-13).
+ */
+export interface RateLimitInfo {
+  status: string
+  resetsAt: number | null
+  rateLimitType: string | null
+}
+
+/** Everything `Dispatcher.start` needs. Kept whole on the run so a retry or a queued dispatch can replay it. */
+export interface DispatchInput {
+  projectId: string
+  projectPath: string
+  taskId: string | null
+  prompt: string
+  kind?: RunKind
+  /** The session `--resume` continues. Required when kind is 'resume'. */
+  resumeSessionId?: string
+}
+
+/**
+ * A dispatch that could not start because an in-place run already holds its
+ * project. In-memory only: unstarted work does not need to survive a restart.
+ */
+export interface QueuedDispatch {
+  queueId: string
+  projectId: string
+  input: DispatchInput
+  queuedAt: string
+}
+
+/** A saved prompt for the "new run" box. Persisted in the history db when SQLite is available. */
+export interface PromptTemplate {
+  id: string
+  name: string
+  text: string
+  createdAt: string
+}
+
 export interface RunHandle {
   runId: string
   projectId: string
-  taskId: string
+  /** The TASKS.md task behind the run. Null for prompt and resume runs. */
+  taskId: string | null
+  /** Optional so run handles recorded before prompt/resume runs stay valid; absent means 'task'. */
+  kind?: RunKind
   sessionId: string | null
   status: RunStatus
   startedAt: string
@@ -98,6 +148,32 @@ export interface RunHandle {
   merged?: boolean
   /** The worktree was thrown away without merging. The branch survives. */
   discarded?: boolean
+  /** Latest rate-limit event from the stream. Optional so older handles stay valid. */
+  lastRateLimit?: RateLimitInfo | null
+}
+
+/** What a scheduled job does when it fires. */
+export type ScheduleKind = 'resume-run' | 'dispatch-task'
+
+/**
+ * One pending scheduled job. `resume-run` continues a session headlessly at
+ * `runAt` (auto-continue after a rate limit uses this); `dispatch-task` starts
+ * a TASKS.md task at a chosen time. Persisted in the history db when SQLite is
+ * available; in-memory (dies with the process) otherwise.
+ */
+export interface ScheduleJob {
+  id: string
+  kind: ScheduleKind
+  projectId: string
+  /** The TASKS.md task to dispatch. Null for resume-run jobs. */
+  taskId: string | null
+  /** The session to `--resume`. Null for dispatch-task jobs. */
+  sessionId: string | null
+  /** The prompt a resume-run sends. Null for dispatch-task jobs (the task text is read at fire time). */
+  prompt: string | null
+  runAt: string
+  createdAt: string
+  note: string | null
 }
 
 /** How a live process was started. Background agents have no OS process of their own. */

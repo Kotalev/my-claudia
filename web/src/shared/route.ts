@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 export interface Route {
   projectId: string | null
   sessionId: string | null
+  history?: boolean
 }
 
 /**
@@ -17,6 +18,9 @@ export interface Route {
  * a user typed by hand.
  */
 export function parseRoute(pathname: string): Route {
+  if (pathname === '/history' || pathname.startsWith('/history/')) {
+    return { projectId: null, sessionId: null, history: true }
+  }
   const project = /^\/p\/([^/]+)/.exec(pathname)
   const session = /\/s\/([^/]+)/.exec(pathname)
   return {
@@ -36,6 +40,7 @@ function decodeSegment(raw: string | undefined): string | null {
 }
 
 export function pathFor(route: Route): string {
+  if (route.history) return '/history'
   let path = ''
   if (route.projectId) path += `/p/${encodeURIComponent(route.projectId)}`
   if (route.sessionId) path += `/s/${encodeURIComponent(route.sessionId)}`

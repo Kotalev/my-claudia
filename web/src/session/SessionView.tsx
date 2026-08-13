@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { ArrowDown, ArrowLeft, RotateCw, Search, X } from 'lucide-react'
+import { apiFetch } from '../shared/api.js'
 import { useSessionDetail } from './useSessionDetail.js'
 import { ActivityBlock, CompactionDivider, HiddenDivider, TimelineEntry } from './TimelineEntry.js'
 import { relativeTime } from '../shared/format.js'
@@ -19,9 +20,82 @@ function chapterTime(iso: string): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/**
+ * Continue a session that is not live anywhere: a message dispatched as a
+ * headless `claude -p --resume` run, whose output streams on the project
+ * screen — hence the navigation on success.
+ */
+function ResumeForm({ sessionId, onResumed }: { sessionId: string; onResumed: () => void }) {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = async (e: FormEvent): Promise<void> => {
+    e.preventDefault()
+    const trimmed = text.trim()
+    if (trimmed.length === 0 || busy) return
+    setBusy(true)
+    setError(null)
+    const res = await apiFetch(`/api/sessions/${sessionId}/resume`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: trimmed }),
+    })
+    setBusy(false)
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setError(body.error ?? `resume failed (${res.status})`)
+      return
+    }
+    onResumed()
+  }
+
+  return (
+    <details data-testid="resume-session" className="rounded-lg border border-neutral-800 bg-neutral-900">
+      <summary className={`cursor-pointer list-none rounded-lg px-3.5 py-2 font-mono text-[10.5px] font-medium tracking-[0.14em] uppercase text-faint hover:text-muted ${FOCUS_RING}`}>
+        continue this session
+      </summary>
+      <form onSubmit={e => void submit(e)} className="space-y-2 px-3.5 pb-3">
+        <label htmlFor="resume-text" className="sr-only">Message to continue this session with</label>
+        <textarea
+          id="resume-text"
+          data-testid="resume-input"
+          rows={2}
+          value={text}
+          onChange={e => setText(e.target.value)}
+          placeholder="What should the session do next?"
+          className={`w-full resize-y rounded-[7px] border border-neutral-700 bg-neutral-950 px-2.5 py-2 font-mono text-[11.5px] text-muted placeholder:text-dim ${FOCUS_RING}`}
+        />
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            data-testid="resume-submit"
+            disabled={busy || text.trim().length === 0}
+            className={`inline-flex items-center gap-1.5 rounded-[5px] border border-neutral-700 px-2 py-1 text-[11px] text-faint hover:text-work disabled:opacity-50 ${FOCUS_RING}`}
+          >
+            resume run
+          </button>
+          <p className="font-mono text-[11px] text-dim">
+            Dispatches claude -p --resume; output streams on the project screen.
+          </p>
+        </div>
+        {error && (
+          <p data-testid="resume-error" className="font-mono text-[11.5px] break-words text-danger">{error}</p>
+        )}
+      </form>
+    </details>
+  )
+}
+
 export function SessionView(
-  { sessionId, liveActivity, backLabel, onBack }:
-  { sessionId: string; liveActivity: string | null; backLabel: string; onBack: () => void },
+  { sessionId, liveActivity, backLabel, onBack, onResumed }:
+  {
+    sessionId: string
+    liveActivity: string | null
+    backLabel: string
+    onBack: () => void
+    /** A resume run was dispatched for this session; go watch it on the project screen. */
+    onResumed: (projectId: string) => void
+  },
 ) {
   const { summary, entries, loading, error, refetch } = useSessionDetail(sessionId, liveActivity)
   const [follow, setFollow] = useState(true)
@@ -184,6 +258,16 @@ export function SessionView(
               reportedCostUsd={summary.reportedCostUsd}
               working={working}
             />
+            {/* Only for a session no terminal holds open, and only when its
+                project is registered — resuming needs a real project path. */}
+            {summary.live === null && summary.projectId !== null && (
+              <div className="mt-3">
+                <ResumeForm
+                  sessionId={summary.sessionId}
+                  onResumed={() => onResumed(summary.projectId!)}
+                />
+              </div>
+            )}
           </Container>
         </div>
       )}
@@ -210,7 +294,9 @@ export function SessionView(
                   value={tool ?? ''}
                   onChange={e => setTool(e.target.value === '' ? null : e.target.value)}
                   aria-label="Filter entries by tool"
-                  className={`rounded-lg border border-neutral-800 bg-neutral-900 px-2 py-1.5 font-mono text-[11.5px] ${tool === null ? 'text-faint' : 'text-neutral-200'} ${FOCUS_RING} focus:border-neutral-600`}
+                  // max-w-full: the select's intrinsic width is its longest
+                  // option, which pushed the page sideways on a phone.
+                  className={`max-w-full rounded-lg border border-neutral-800 bg-neutral-900 px-2 py-1.5 font-mono text-[11.5px] ${tool === null ? 'text-faint' : 'text-neutral-200'} ${FOCUS_RING} focus:border-neutral-600`}
                 >
                   <option value="">all tools</option>
                   {toolNames.map(name => <option key={name} value={name}>{name}</option>)}

@@ -8,6 +8,13 @@
 
 ## Done
 
+- [x] **T-060** Steering: send follow-up messages to a live dispatched run over stream-json stdin; input box on the run panel `#m14` `#p1` (2026-08-13)
+- [x] **T-061** Start/resume sessions from the dashboard: new prompt against a project, resume an existing session headlessly `#m14` `#p1` (2026-08-13)
+- [x] **T-062** Remote access: opt-in `MC_HOST` bind (token stays mandatory), responsive mobile layout, PWA manifest `#m14` `#p2` (2026-08-13)
+- [x] **T-063** SQLite history: persist runs/spend to `mission-control.db` via `node:sqlite`; history view with charts `#m14` `#p2` (2026-08-13)
+- [x] **T-064** Auto-continue on rate limit + scheduled dispatch (run a task at a set time) `#m14` `#p2` (2026-08-13)
+- [x] **T-065** Dispatch queue with retry for failed runs + prompt templates on the dispatch form `#m14` `#p2` (2026-08-13)
+
 - [x] **T-053** Context-pressure warning: occupancy amber ≥85% + "compaction soon" flag on Live rows `#m13` `#p2` (2026-08-13)
 - [x] **T-054** In-session search: filter the open transcript by text and by tool on the Session screen `#m13` `#p2` (2026-08-13)
 - [x] **T-055** Answer permission prompts from the dashboard: PermissionRequest hook holds the decision, timeout falls back to the terminal `#m13` `#p1` (2026-08-13)
@@ -72,6 +79,14 @@
 
 ## Progress log
 
+- 2026-08-13 11:05 T-060..T-065 — all six done; browser-verified on prod build: steer/finish, resume recalled context, queue drained, schedule fired at 10:41, template CRUD, history persisted; 656 tests
+- 2026-08-13 11:00 T-065 — task run button now queues when the project is busy (was disabled); running detection covers parallel runs
+- 2026-08-13 10:50 T-064 — rate-limit auto-continue is test-verified only: a real limit cannot be triggered on demand; scheduler itself fired live
+- 2026-08-13 10:35 T-061..T-065 — wave 2 landed sequentially; --resume + stream-json stdin probe-verified (same session id, context kept)
+- 2026-08-13 10:05 T-060/062/063 — wave 1 landed + wiring applied; 605 tests, lint clean under Node 24; engines >=22.5
+- 2026-08-13 09:55 T-060 — verified live: stream-json stdin keeps claude alive across turns; rate_limit_event carries resetsAt
+
+- 2026-08-13 09:48 T-060..T-065 — round 3 queued (steering, resume, remote, sqlite history, auto-continue, queue+templates); CLI facts being verified
 - 2026-08-13 06:45 T-053..T-058 — all six done, browser-verified against the prod build (npx path); 554 tests, lint clean
 - 2026-08-13 06:42 T-058 — review diff missed the run's own commits (diff HEAD); base commit now recorded and diffed against
 - 2026-08-13 06:37 T-058 — full cycle live: worktree run committed, diff shown, dirty-tree merge 409, clean merge --no-ff landed

@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Overview } from './overview/Overview.js'
 import { SessionView } from './session/SessionView.js'
 import { ProjectView } from './project/ProjectView.js'
+import { HistoryView } from './history/HistoryView.js'
 import { useLiveState } from './shared/useLiveState.js'
 import { useRoute } from './shared/route.js'
 
@@ -43,6 +44,8 @@ export function App() {
         // Back from a session opened inside a project returns to that project.
         backLabel={project?.name ?? 'Overview'}
         onBack={() => navigate({ projectId: route.projectId, sessionId: null })}
+        // The dispatched resume run streams on the project screen, so go there.
+        onResumed={projectId => navigate({ projectId, sessionId: null })}
       />
     )
   }
@@ -55,8 +58,19 @@ export function App() {
         doc={live.tasks[project.id]}
         runs={live.runs.filter(r => r.projectId === project.id)}
         runOutput={live.runOutput}
+        schedules={live.schedules.filter(s => s.projectId === project.id)}
+        queue={live.queue.filter(q => q.projectId === project.id)}
         onBack={() => navigate({ projectId: null, sessionId: null })}
         onOpenSession={id => navigate({ ...route, sessionId: id })}
+      />
+    )
+  }
+
+  if (route.history) {
+    return (
+      <HistoryView
+        projects={live.projects}
+        onBack={() => navigate({ projectId: null, sessionId: null })}
       />
     )
   }
@@ -66,6 +80,7 @@ export function App() {
       live={live}
       onOpenSession={id => navigate({ projectId: null, sessionId: id })}
       onOpenProject={id => navigate({ projectId: id, sessionId: null })}
+      onOpenHistory={() => navigate({ projectId: null, sessionId: null, history: true })}
     />
   )
 }

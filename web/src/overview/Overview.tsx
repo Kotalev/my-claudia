@@ -17,8 +17,8 @@ import { FOCUS_RING } from '../shared/focus.js'
 import { useClockTick } from '../shared/useClockTick.js'
 
 export function Overview(
-  { live, onOpenSession, onOpenProject }:
-  { live: LiveState; onOpenSession: (id: string) => void; onOpenProject: (id: string) => void },
+  { live, onOpenSession, onOpenProject, onOpenHistory }:
+  { live: LiveState; onOpenSession: (id: string) => void; onOpenProject: (id: string) => void; onOpenHistory: () => void },
 ) {
   const [adding, setAdding] = useState(false)
   const [removeError, setRemoveError] = useState<string | null>(null)
@@ -71,6 +71,13 @@ export function Overview(
         </span>
         {account && <span data-testid="account-email" className="font-mono text-xs text-faint">{account.email}</span>}
         <div className="ml-auto flex items-center gap-2.5">
+          <a
+            href="/history"
+            onClick={e => { e.preventDefault(); onOpenHistory() }}
+            className={`rounded px-2 py-1 font-mono text-[11.5px] text-faint hover:bg-neutral-875 hover:text-neutral-200 ${FOCUS_RING}`}
+          >
+            history
+          </a>
           <NotifyButton />
           <button
             data-testid="add-project-toggle"

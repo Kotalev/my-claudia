@@ -30,6 +30,17 @@ export const STATUS_ORDER: Record<SessionStatus, number> = {
   waiting: 0, active: 1, idle: 2, done: 3,
 }
 
+/** Local wall-clock HH:MM of a moment; prefixed with day.month when it is not today. */
+export function clockTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  const now = new Date()
+  const sameDay = d.getFullYear() === now.getFullYear()
+    && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
+  return sameDay ? hm : `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')} ${hm}`
+}
+
 export function elapsed(iso: string): string {
   const ms = Date.now() - Date.parse(iso)
   if (!Number.isFinite(ms) || ms < 0) return '—'
