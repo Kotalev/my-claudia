@@ -6,6 +6,7 @@
 
 ## Done
 
+- [x] **T-074** Dead code sweep: find unused functions/variables/files across the project, verify each is truly unused, remove them, then run tests/lint to confirm nothing broke `#deadcode` (2026-08-13)
 - [x] **T-059** Finished sessions show WORKING for ~5 min: registry `idle` must beat freshness in `deriveStatus`; keep the fresh fallback only for status-less (sdk-cli) processes `#p1` (2026-08-13)
 - [x] **T-066** Loop schedules: `repeatEveryMs` on a schedule; on run finish the job replicates itself; stop conditions (max iterations, N consecutive failures); iterations chained under a `loopId` in history `#m15` `#p1` (2026-08-13)
 - [x] **T-067** Watchdog: flag a run that exceeds a max duration or emits no output for N minutes; notification + visible state on the run panel `#m15` `#p1` (2026-08-13)
@@ -86,6 +87,9 @@
 
 ## Progress log
 
+- 2026-08-13 13:55 T-074 — done: totalTokens deleted, zustand dropped, 9 unused re-exports + 10 dead export keywords trimmed; 763 tests, lint + build clean
+- 2026-08-13 13:45 T-074 — watchdog test failure was env, not code: NODE_ENV=production npm install pruned dev deps; --include=dev fixed it
+- 2026-08-13 13:05 T-074 — started dead-code sweep; plan: knip/ts-prune style analysis + manual verification before any removal
 - 2026-08-13 12:37 T-059,T-066..T-072 — all eight done, browser-verified on prod build: loop fired/replicated/stopped, review restart path, inbox, digest, search; 763 tests
 - 2026-08-13 12:33 T-069 — merge now commits a worktree's pending changes first: runs are not required to commit, the diff showed them, silent loss was possible
 - 2026-08-13 12:25 — npm test used to prune the REAL .worktrees via buildServer's cwd defaults (killed a live run's worktree); buildServer paths now injectable, tests use tmp roots

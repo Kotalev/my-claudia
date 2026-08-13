@@ -6,14 +6,9 @@ export type {
   SessionStatus,
   SessionSummary,
   RunStatus,
-  RunKind,
   RunHandle,
   RunDiff,
-  RunDiffFile,
-  RateLimitInfo,
-  ScheduleKind,
   ScheduleJob,
-  DispatchInput,
   QueuedDispatch,
   PromptTemplate,
   PendingReview,
@@ -22,8 +17,6 @@ export type {
 export type {
   SessionUsage,
   TokenTotals,
-  RateBucket,
-  LiveProcess,
   SpendSummary,
   AccountInfo,
   PermissionRequestInfo,
@@ -35,7 +28,5 @@ export type { PlanLimits, RateLimitWindow } from '@server/live/statusline.js'
 export type {
   TaskStatus,
   Task,
-  ProgressEntry,
-  ExtraSection,
   TasksDoc,
 } from '@tasks/types.js'

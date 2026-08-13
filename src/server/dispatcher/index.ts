@@ -1,4 +1,4 @@
-export type { DispatchInput, RunHandle, RunKind, RunStatus } from '../../shared/types.js'
+export type { DispatchInput, RunHandle, RunStatus } from '../../shared/types.js'
 import type { DispatchInput, RateLimitInfo, RunHandle, RunStatus } from '../../shared/types.js'
 import { EventEmitter } from 'node:events'
 import { spawn, type ChildProcess } from 'node:child_process'

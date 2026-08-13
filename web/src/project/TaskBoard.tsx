@@ -27,7 +27,7 @@ export interface ScheduleOptions {
 }
 
 /** A loop's cadence line: "every 60m · iteration 3". */
-export function loopLabel(s: ScheduleJob): string | null {
+function loopLabel(s: ScheduleJob): string | null {
   if (s.repeatEveryMs == null) return null
   const minutes = Math.round(s.repeatEveryMs / 60_000)
   const upTo = s.maxIterations != null ? `/${s.maxIterations}` : ''

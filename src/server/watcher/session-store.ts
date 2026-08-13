@@ -6,10 +6,10 @@ import type { PlanLimits, StatuslineReport } from '../live/statusline.js'
 import { computeBurnRate, type BurnSample } from '../usage/burn-rate.js'
 
 /** A session with no activity for this long is no longer "active". */
-export const ACTIVE_WINDOW_MS = 5 * 60 * 1000
+const ACTIVE_WINDOW_MS = 5 * 60 * 1000
 
 /** Statusline samples older than this cannot say anything about the current pace. */
-export const BURN_SAMPLE_WINDOW_MS = 2 * 60 * 60 * 1000
+const BURN_SAMPLE_WINDOW_MS = 2 * 60 * 60 * 1000
 
 /**
  * Entries retained per session. Startup backfill is capped at 1 MB per file, but
