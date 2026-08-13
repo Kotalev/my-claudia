@@ -32,6 +32,12 @@ export interface SessionSummary {
   historyTruncated: boolean
   /** The running process behind this session, when there is one. */
   live: LiveProcess | null
+  /**
+   * Current git branch of the live process's working directory, read from
+   * `.git/HEAD`. Null when the session is not live, the directory is not a
+   * checkout, or HEAD is unreadable.
+   */
+  gitBranch: string | null
   usage: SessionUsage
   /**
    * Claude Code's own cost figure for this session, via the statusline. Still a
@@ -41,6 +47,27 @@ export interface SessionSummary {
 }
 
 export type RunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+/**
+ * Where a dispatched run's working tree lives. `worktree` means a linked git
+ * worktree on its own branch, outside the project tree; `in-place` is the old
+ * behaviour, kept for projects that are not git repos.
+ */
+export type RunIsolation = 'worktree' | 'in-place'
+
+/** One changed file in a run's diff. Untracked files count their lines as additions. */
+export interface RunDiffFile {
+  path: string
+  additions: number
+  deletions: number
+}
+
+/** What `GET /api/runs/:id/diff` answers. An empty diff is empty arrays, never 404. */
+export interface RunDiff {
+  branch: string | null
+  files: RunDiffFile[]
+  patch: string
+}
 
 export interface RunHandle {
   runId: string
@@ -57,6 +84,20 @@ export interface RunHandle {
    */
   costUsd: number | null
   numTurns: number | null
+  /** Optional so run handles recorded before worktree isolation stay valid. */
+  isolation?: RunIsolation
+  /** The run's own branch (`mc/run-<short id>`). Null for in-place runs. Never deleted. */
+  branch?: string | null
+  /** Absolute path of the linked worktree. Null for in-place runs and after removal. */
+  worktreeDir?: string | null
+  /** Commit the run branched from; the review diff is measured against it. */
+  baseCommit?: string | null
+  /** True while the worktree still exists, so its diff can be read. */
+  diffAvailable?: boolean
+  /** The run branch was merged into the project checkout; the worktree is gone. */
+  merged?: boolean
+  /** The worktree was thrown away without merging. The branch survives. */
+  discarded?: boolean
 }
 
 /** How a live process was started. Background agents have no OS process of their own. */
@@ -120,6 +161,13 @@ export interface RateBucket {
   totals: TokenTotals
 }
 
+/** One aggregated period of the spend ledger. Null usd means nothing priceable, not zero. */
+export interface SpendRollup {
+  /** `2026-W33` for an ISO week, `2026-08` for a calendar month. */
+  key: string
+  usd: number | null
+}
+
 /**
  * Account-wide spend across all registered projects, over rolling windows of
  * local calendar days. An estimate at list prices, not a bill. Each figure is
@@ -129,6 +177,13 @@ export interface SpendSummary {
   todayUsd: number | null
   sevenDayUsd: number | null
   thirtyDayUsd: number | null
+  /**
+   * The last 4 ISO weeks (current first) and the current + previous calendar
+   * month, aggregated from the same daily buckets. Bounded by the 30-day
+   * retention, so the oldest period can only ever be partially covered.
+   */
+  weekly: SpendRollup[]
+  monthly: SpendRollup[]
   /** Models seen in the 30-day window that we hold no price for. */
   unpricedModels: string[]
   updatedAt: string
@@ -137,6 +192,21 @@ export interface SpendSummary {
 /** The Claude account logged in on this machine, read from `.claude.json`. */
 export interface AccountInfo {
   email: string
+}
+
+/**
+ * A permission prompt a Claude Code session is holding open right now. The
+ * sink holds the hook's HTTP reply while this exists; answering or letting
+ * the ~22s window lapse removes it.
+ */
+export interface PermissionRequestInfo {
+  id: string
+  sessionId: string
+  toolName: string
+  /** One safe line of the tool input — a command or a path, never the raw payload. */
+  toolInputSummary: string
+  cwd: string | null
+  createdAt: string
 }
 
 export interface SessionUsage {

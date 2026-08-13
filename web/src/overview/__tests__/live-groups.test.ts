@@ -37,6 +37,7 @@ function session(over: {
     versions: [],
     skippedUnknown: 0,
     historyTruncated: false,
+    gitBranch: null,
     live: {
       sessionId: id,
       pid: 1,

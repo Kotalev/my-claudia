@@ -3,10 +3,12 @@ import { EventHub } from '../hub.js'
 
 const emptySpend = {
   todayUsd: null, sevenDayUsd: null, thirtyDayUsd: null,
+  weekly: [], monthly: [],
   unpricedModels: [], updatedAt: '2026-08-12T10:00:00.000Z',
 }
 const emptySnapshot = () => ({
   projects: [], sessions: [], tasks: {}, planLimits: null, spend: emptySpend, account: null,
+  permissions: [],
 })
 
 describe('EventHub', () => {

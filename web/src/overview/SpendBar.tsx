@@ -6,6 +6,28 @@ function usd(v: number): string {
   return v < 10 ? `$${v.toFixed(2)}` : `$${Math.round(v)}`
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** `2026-W33` → `W33`; `2026-08` → `Aug`. Unrecognized keys pass through untouched. */
+function rollupLabel(key: string): string {
+  const w = key.indexOf('W')
+  if (w >= 0) return key.slice(w)
+  return MONTHS[Number(key.slice(5, 7)) - 1] ?? key
+}
+
+function Rollups({ label, rollups }: { label: string; rollups: { key: string; usd: number | null }[] }) {
+  return (
+    <span className="flex gap-3">
+      <span className="text-faint">{label}</span>
+      {rollups.map(r => (
+        <span key={r.key} className="tabular-nums">
+          {rollupLabel(r.key)} {r.usd === null ? '—' : usd(r.usd)}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 function Figure(
   { label, value, lead = false }: { label: string; value: number | null; lead?: boolean },
 ) {
@@ -55,6 +77,15 @@ export function SpendBar({ spend }: { spend: SpendSummary | null }) {
           <span className="pb-0.5 font-mono text-[11px] text-faint">+ unpriced</span>
         )}
       </div>
+      {(spend.weekly.some(r => r.usd !== null) || spend.monthly.some(r => r.usd !== null)) && (
+        <div
+          data-testid="spend-rollups"
+          className="flex flex-wrap gap-x-6 gap-y-1 font-mono text-[11px] text-dim"
+        >
+          <Rollups label="wk" rollups={spend.weekly} />
+          <Rollups label="mo" rollups={spend.monthly} />
+        </div>
+      )}
     </section>
   )
 }

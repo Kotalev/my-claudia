@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtemp, mkdir, readFile, writeFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { mergeHooks, installHooks, isInstalled, HOOK_EVENTS, mergeStatusLine } from '../installer.js'
+import { mergeHooks, installHooks, isInstalled, HOOK_EVENTS, mergeStatusLine, mergePermissionHook, PERMISSION_EVENT } from '../installer.js'
 
 // Lets the home-directory guard be tested without ever pointing installHooks at
 // the real home. Everything else (tmpdir) passes through untouched.
@@ -59,6 +59,45 @@ describe('mergeHooks', () => {
   })
 })
 
+describe('mergePermissionHook', () => {
+  const PERM_SCRIPT = '/opt/mc/scripts/permission-prompt.sh'
+
+  it('adds a PermissionRequest group with matcher * and a 30s timeout', () => {
+    const { settings, changed } = mergePermissionHook({}, PERM_SCRIPT)
+    expect(changed).toBe(true)
+    const groups = (settings.hooks as Record<string, { matcher?: string; hooks: { command: string; timeout?: number }[] }[]>)[PERMISSION_EVENT]!
+    expect(groups).toHaveLength(1)
+    expect(groups[0]!.matcher).toBe('*')
+    expect(groups[0]!.hooks[0]!.command).toBe(`'${PERM_SCRIPT}'`)
+    // 30, not 1: blocking is this hook's purpose; timing out safely falls back
+    // to the terminal prompt.
+    expect(groups[0]!.hooks[0]!.timeout).toBe(30)
+  })
+
+  it("preserves the user's own PermissionRequest groups", () => {
+    const existing = {
+      hooks: { [PERMISSION_EVENT]: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'my-guard.sh' }] }] },
+    }
+    const { settings } = mergePermissionHook(existing, PERM_SCRIPT)
+    const groups = (settings.hooks as Record<string, { hooks: { command: string }[] }[]>)[PERMISSION_EVENT]!
+    expect(groups.flatMap(g => g.hooks.map(h => h.command))).toContain('my-guard.sh')
+    expect(groups.flatMap(g => g.hooks.map(h => h.command))).toContain(`'${PERM_SCRIPT}'`)
+  })
+
+  it('is idempotent — a second merge changes nothing', () => {
+    const first = mergePermissionHook({}, PERM_SCRIPT)
+    const second = mergePermissionHook(first.settings, PERM_SCRIPT)
+    expect(second.changed).toBe(false)
+    expect(second.settings.hooks).toEqual(first.settings.hooks)
+  })
+
+  it('treats non-object settings as empty rather than throwing', () => {
+    expect(mergePermissionHook(null, PERM_SCRIPT).changed).toBe(true)
+    expect(mergePermissionHook('garbage', PERM_SCRIPT).changed).toBe(true)
+    expect(mergePermissionHook([1], PERM_SCRIPT).changed).toBe(true)
+  })
+})
+
 describe('installHooks', () => {
   it('creates .claude/settings.local.json when absent, with no backup', async () => {
     const result = await installHooks(dir, SCRIPT)
@@ -99,6 +138,23 @@ describe('installHooks', () => {
 
   it('reports not installed for a project with no settings', async () => {
     expect(await isInstalled(dir, SCRIPT)).toBe(false)
+  })
+
+  it('writes the PermissionRequest hook when given its script', async () => {
+    const PERM_SCRIPT = '/opt/mc/scripts/permission-prompt.sh'
+    const result = await installHooks(dir, SCRIPT, undefined, PERM_SCRIPT)
+    expect(result.permissionPrompt).toBe(true)
+    const written = JSON.parse(await readFile(result.settingsPath, 'utf8'))
+    expect(written.hooks[PERMISSION_EVENT][0].matcher).toBe('*')
+    expect(written.hooks[PERMISSION_EVENT][0].hooks[0].timeout).toBe(30)
+    expect(await isInstalled(dir, SCRIPT, PERM_SCRIPT)).toBe(true)
+  })
+
+  it('counts a missing permission hook as not installed, so the button reappears', async () => {
+    const PERM_SCRIPT = '/opt/mc/scripts/permission-prompt.sh'
+    await installHooks(dir, SCRIPT)   // an older install, without the permission hook
+    expect(await isInstalled(dir, SCRIPT)).toBe(true)
+    expect(await isInstalled(dir, SCRIPT, PERM_SCRIPT)).toBe(false)
   })
 })
 

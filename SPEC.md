@@ -89,6 +89,24 @@ Single Node process serving both API and frontend. Local only — binds to `127.
 - Generated prompt template: *"Work on task `<id>` from TASKS.md. When done, update its status and Progress log line in TASKS.md."* (CLAUDE.md in the target project reinforces this — see companion CLAUDE.md.)
 - Concurrency guard: max 1 dispatched run per project by default (configurable).
 
+#### 3.3.1 Worktree isolation (T-058)
+
+- When the project is a git repo, a dispatch does not run in the project tree: it gets a
+  linked worktree under `<dashboard cwd>/.worktrees/<runId>` on a fresh branch
+  `mc/run-<runId first 8>` off the project's HEAD, and the run's cwd is that worktree.
+  Worktree runs may overlap freely; the 1-per-project guard remains only for non-git
+  projects, which keep the old in-place behaviour.
+- Review before merge: `GET /api/runs/:id/diff` reads the worktree (`diff HEAD` +
+  `--numstat`, untracked via `status --porcelain -uall`, small untracked content inlined).
+  `POST /api/runs/:id/merge` is the ONLY command that touches the user's checkout, and it
+  is guarded: refused (409) unless `git status --porcelain` in the project is empty and
+  the run has finished; a conflicting merge is `merge --abort`ed and reported as 409.
+  `POST /api/runs/:id/discard` throws the worktree away.
+- Branches are never deleted — merged or discarded, `mc/run-*` stays for the user to
+  inspect. Worktrees the server no longer tracks are pruned at startup (`git worktree
+  prune` per repo, orphan dirs removed only under `.worktrees/`).
+- Every git call is a spawned argv array with explicit `-C` — no shell strings ever.
+
 ### 3.4 Hook ingestion (the deterministic channel)
 
 Installable per project (dashboard offers a "install hooks" helper that merges into `.claude/settings.local.json` — hooks carry absolute paths into this checkout, so they are per-machine and stay out of version control):
@@ -409,6 +427,31 @@ so a control added later cannot forget it.
 Decorative glyphs carry `aria-hidden="true"`, so the accessible name stays the
 visible text. It is a devDependency alongside react: it is bundled, not
 required at runtime by the server.
+
+### 8.11 Permission prompts from the dashboard (T-055)
+
+Verified against the official hooks docs (2026-08-13): the `PermissionRequest`
+hook event fires exactly when Claude Code is about to ask for permission; stdin
+carries `session_id`, `cwd`, `hook_event_name`, `tool_name`, `tool_input`,
+`tool_use_id`. To decide, the hook prints
+`{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"|"deny"}}}`
+to stdout. Exit 0 with **no stdout** → the normal interactive terminal prompt
+proceeds untouched, and a hook timeout discards output and does the same. The
+per-hook timeout lives in the settings entry (`"timeout": 30`).
+
+`scripts/permission-prompt.sh` **deliberately deviates** from the "hooks are
+fail-silent with 1s timeout" rule of section 4: blocking is this hook's entire
+purpose — holding the reply open is how a dashboard click reaches the prompt.
+The deviation is safe because every failure mode (dashboard down, curl missing,
+timeout) produces no stdout, which by the verified semantics above means "the
+terminal asks, as before". The budget nests: sink holds 22s < curl
+`--max-time 25` < hook timeout 30, so the server can still answer `{}` ("no
+opinion") while everyone upstream is listening. The sink
+(`POST /api/hooks/permission`) is token-exempt like the other hook sinks and
+answers 200 to garbage; the decision endpoint
+(`POST /api/permissions/:id/decision`) requires the token, because it is a
+local process authorising tool use. Only a ~120-char summary of `tool_input`
+ever reaches the broadcast — never the raw payload.
 
 ## 7. Risks
 

@@ -89,6 +89,32 @@ describe('API token requirement', () => {
     expect(res.statusCode).toBe(200)
   })
 
+  it('leaves the permission sink open — its forwarder carries no token either', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/hooks/permission',
+      payload: { anything: true },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({})
+  })
+
+  it('requires the token on the permission decision endpoint', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/permissions/some-id/decision',
+      payload: { behavior: 'allow' },
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('lets a tokened decision through the guard (404: unknown id, not 401)', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/permissions/some-id/decision',
+      headers: { 'x-auth-token': token },
+      payload: { behavior: 'allow' },
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
   it('leaves the statusline sink open', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/statusline',

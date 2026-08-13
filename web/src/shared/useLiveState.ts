@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AccountInfo, ProjectRecord, RunHandle, SessionStatus, SessionSummary, SpendSummary, TasksDoc } from './types.js'
+import type { AccountInfo, PermissionRequestInfo, ProjectRecord, RunHandle, SessionStatus, SessionSummary, SpendSummary, TasksDoc } from './types.js'
 import type { PlanLimits } from '@server/live/statusline.js'
 import { dismiss, fire, isEnabled, permission, reconcile, shouldNotify } from './notifications.js'
 import { wsUrl } from './api.js'
@@ -13,6 +13,7 @@ export interface LiveState {
   account: AccountInfo | null
   runs: RunHandle[]
   runOutput: Record<string, string>
+  permissions: PermissionRequestInfo[]
   connected: boolean
 }
 
@@ -34,6 +35,7 @@ export function useLiveState({ focusedSessionId, onOpenSession }: LiveStateOptio
   const [account, setAccount] = useState<AccountInfo | null>(null)
   const [runs, setRuns] = useState<RunHandle[]>([])
   const [runOutput, setRunOutput] = useState<Record<string, string>>({})
+  const [permissions, setPermissions] = useState<PermissionRequestInfo[]>([])
   const [connected, setConnected] = useState(false)
   const lastSeq = useRef(0)
   const seeded = useRef(false)
@@ -93,6 +95,7 @@ export function useLiveState({ focusedSessionId, onOpenSession }: LiveStateOptio
           setPlanLimits(msg.planLimits ?? null)
           setSpend(msg.spend ?? null)
           setAccount(msg.account ?? null)
+          setPermissions(msg.permissions ?? [])
         } else if (msg.type === 'dispatch.updated') {
           setRuns(prev => [msg.run, ...prev.filter(r => r.runId !== msg.run.runId)])
         } else if (msg.type === 'dispatch.output') {
@@ -108,6 +111,11 @@ export function useLiveState({ focusedSessionId, onOpenSession }: LiveStateOptio
           setSpend(msg.spend ?? null)
         } else if (msg.type === 'task.updated') {
           setTasks(prev => ({ ...prev, [msg.projectId]: msg.doc }))
+        } else if (msg.type === 'permission.requested') {
+          const request = msg.request as PermissionRequestInfo
+          setPermissions(prev => [request, ...prev.filter(p => p.id !== request.id)])
+        } else if (msg.type === 'permission.resolved') {
+          setPermissions(prev => prev.filter(p => p.id !== msg.id))
         } else if (msg.type === 'session.updated') {
           // Decided out here, never inside the setSessions updater: StrictMode
           // invokes updaters twice, which would fire two notifications.
@@ -164,5 +172,5 @@ export function useLiveState({ focusedSessionId, onOpenSession }: LiveStateOptio
     }
   }, [])
 
-  return { projects, sessions, tasks, planLimits, spend, account, runs, runOutput, connected }
+  return { projects, sessions, tasks, planLimits, spend, account, runs, runOutput, permissions, connected }
 }

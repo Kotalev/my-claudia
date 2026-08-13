@@ -7,6 +7,8 @@ export type {
   SessionSummary,
   RunStatus,
   RunHandle,
+  RunDiff,
+  RunDiffFile,
 } from '@shared/types.js'
 
 export type {
@@ -16,6 +18,7 @@ export type {
   LiveProcess,
   SpendSummary,
   AccountInfo,
+  PermissionRequestInfo,
 } from '@shared/types.js'
 
 export type { ToolCall, TranscriptEntry } from '@transcript/types.js'

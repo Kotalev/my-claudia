@@ -1,6 +1,8 @@
 import type { PlanLimits as Limits, RateLimitWindow } from '../shared/types.js'
+import { useClockTick } from '../shared/useClockTick.js'
 
-function resetLabel(iso: string | null): string {
+/** "resets in Xh Ym" (under an hour: "resets in Xm"); empty for null, past, or unparseable. */
+export function resetLabel(iso: string | null): string {
   if (iso === null) return ''
   const mins = Math.round((Date.parse(iso) - Date.now()) / 60_000)
   if (!Number.isFinite(mins) || mins <= 0) return ''
@@ -59,6 +61,9 @@ function Window({ label, window: w }: { label: string; window: RateLimitWindow }
  * that is installed, and absent entirely for API-key users.
  */
 export function PlanLimitsBar({ limits }: { limits: Limits | null }) {
+  // The countdowns, expiry checks and staleness qualifier all read Date.now()
+  // at render; without a tick they freeze between socket messages.
+  useClockTick()
   if (!limits || (!limits.fiveHour && !limits.sevenDay)) return null
   const age = Date.now() - Date.parse(limits.updatedAt)
   // These arrive only while a session is running. Once the statusline stops
@@ -77,8 +82,20 @@ export function PlanLimitsBar({ limits }: { limits: Limits | null }) {
         {limits.fiveHour && <Window label="5h" window={limits.fiveHour} />}
         {limits.sevenDay && <Window label="7d" window={limits.sevenDay} />}
       </div>
+      {!stale && limits.fiveHour && !isExpired(limits.fiveHour) && limits.fiveHourBurn && (
+        <span data-testid="burn-projection" className="font-mono text-[11px] text-dim">
+          5h: at this pace hits 100% at {clockLabel(limits.fiveHourBurn.projectedHitAt)}
+        </span>
+      )}
     </section>
   )
+}
+
+/** Local wall-clock `HH:MM`; "an unknown time" for an unparseable instant. */
+function clockLabel(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return 'an unknown time'
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 function measuredAgo(iso: string): string {

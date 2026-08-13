@@ -128,6 +128,71 @@ describe('SpendLedger', () => {
   })
 })
 
+describe('SpendLedger rollups', () => {
+  it('keeps the fixed shape on an empty ledger: 4 null weeks, 2 null months', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 7, 12, 15, 0, 0))
+    try {
+      const s = new SpendLedger().summary()
+      expect(s.weekly.map(r => r.key)).toEqual(['2026-W33', '2026-W32', '2026-W31', '2026-W30'])
+      expect(s.weekly.map(r => r.usd)).toEqual([null, null, null, null])
+      expect(s.monthly.map(r => r.key)).toEqual(['2026-08', '2026-07'])
+      expect(s.monthly.map(r => r.usd)).toEqual([null, null])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rolls a single day into exactly its own week and month', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 7, 12, 15, 0, 0))
+    try {
+      const ledger = new SpendLedger()
+      ledger.addEntry('p1', turn({ messageId: 'm1', timestamp: at(0) }))
+      const s = ledger.summary()
+      expect(s.weekly.map(r => r.usd)).toEqual([5, null, null, null])
+      expect(s.monthly.map(r => r.usd)).toEqual([5, null])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('splits a month boundary into both months but sums one ISO week across it', () => {
+    // Sunday 2026-08-02: July 31 sits in the previous month yet the same ISO week.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 7, 2, 15, 0, 0))
+    try {
+      const ledger = new SpendLedger()
+      ledger.addEntry('p1', turn({ messageId: 'jul', timestamp: at(2) }))
+      ledger.addEntry('p1', turn({ messageId: 'aug', timestamp: at(0) }))
+      const s = ledger.summary()
+      expect(s.monthly).toEqual([
+        { key: '2026-08', usd: 5 },
+        { key: '2026-07', usd: 5 },
+      ])
+      expect(s.weekly[0]).toEqual({ key: '2026-W31', usd: 10 })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('sums each ISO week separately across the 4-week span', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 7, 12, 15, 0, 0)) // Wednesday
+    try {
+      const ledger = new SpendLedger()
+      // Today, one week back, and 21 days back land in weeks W33, W32, W30.
+      for (const daysBack of [0, 7, 21]) {
+        ledger.addEntry('p1', turn({ messageId: `m${daysBack}`, timestamp: at(daysBack) }))
+      }
+      const s = ledger.summary()
+      expect(s.weekly.map(r => r.usd)).toEqual([5, 5, null, 5])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('SpendLedger.scanProject', () => {
   let dir: string
 

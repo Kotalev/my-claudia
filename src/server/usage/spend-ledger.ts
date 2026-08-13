@@ -6,7 +6,7 @@ import { parseLine } from '../../transcript/parse.js'
 import type { EntryUsage, TranscriptEntry } from '../../transcript/types.js'
 import { addInto, emptyTotals, isCountable, maxUsage } from '../watcher/usage.js'
 import { estimateCost } from '../../shared/pricing.js'
-import type { RateBucket, SpendSummary, TokenTotals } from '../../shared/types.js'
+import type { RateBucket, SpendRollup, SpendSummary, TokenTotals } from '../../shared/types.js'
 
 const SEP = '\u0000'
 
@@ -28,6 +28,16 @@ function localDay(d: Date): string {
 /** `daysBack` local calendar days before `now`. Component arithmetic, so DST cannot skip a day. */
 function dayBefore(now: Date, daysBack: number): string {
   return localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysBack))
+}
+
+/** The ISO-8601 week of a local calendar day, as `YYYY-Www`. */
+function isoWeek(day: string): string {
+  const [y = 0, m = 1, d = 1] = day.split('-').map(Number)
+  const date = new Date(Date.UTC(y, m - 1, d))
+  // The week's Thursday fixes both its ISO year and its week number.
+  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7))
+  const week = Math.ceil(((date.getTime() - Date.UTC(date.getUTCFullYear(), 0, 1)) / DAY_MS + 1) / 7)
+  return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
 }
 
 interface Recorded {
@@ -144,9 +154,18 @@ export class SpendLedger {
     const sevenDayStart = dayBefore(now, 6)
     const thirtyDayStart = dayBefore(now, 29)
 
+    // Fixed-shape rollup periods, newest first: the current ISO week and the
+    // three before it, the current calendar month and the one before it.
+    const weekKeys = [0, 7, 14, 21].map(back => isoWeek(dayBefore(now, back)))
+    const monthKeys = [
+      today.slice(0, 7),
+      localDay(new Date(now.getFullYear(), now.getMonth() - 1, 1)).slice(0, 7),
+    ]
+
     const todayBuckets = new Map<string, TokenTotals>()
     const sevenDayBuckets = new Map<string, TokenTotals>()
     const thirtyDayBuckets = new Map<string, TokenTotals>()
+    const periodBuckets = new Map<string, Map<string, TokenTotals>>()
 
     for (const project of this.#projects.values()) {
       for (const [key, totals] of project.buckets) {
@@ -155,7 +174,21 @@ export class SpendLedger {
         if (day >= thirtyDayStart) mergeInto(thirtyDayBuckets, rateKey, totals)
         if (day >= sevenDayStart) mergeInto(sevenDayBuckets, rateKey, totals)
         if (day === today) mergeInto(todayBuckets, rateKey, totals)
+        for (const period of [isoWeek(day), day.slice(0, 7)]) {
+          if (!weekKeys.includes(period) && !monthKeys.includes(period)) continue
+          let byRate = periodBuckets.get(period)
+          if (!byRate) {
+            byRate = new Map()
+            periodBuckets.set(period, byRate)
+          }
+          mergeInto(byRate, rateKey, totals)
+        }
       }
+    }
+
+    const rollup = (key: string): SpendRollup => {
+      const byRate = periodBuckets.get(key)
+      return { key, usd: byRate ? estimateCost(toRateBuckets(byRate)).usd : null }
     }
 
     const thirtyDay = estimateCost(toRateBuckets(thirtyDayBuckets))
@@ -163,6 +196,8 @@ export class SpendLedger {
       todayUsd: estimateCost(toRateBuckets(todayBuckets)).usd,
       sevenDayUsd: estimateCost(toRateBuckets(sevenDayBuckets)).usd,
       thirtyDayUsd: thirtyDay.usd,
+      weekly: weekKeys.map(rollup),
+      monthly: monthKeys.map(rollup),
       unpricedModels: thirtyDay.unpricedModels,
       updatedAt: now.toISOString(),
     }

@@ -147,7 +147,9 @@ export function ProjectView(
             loading={loading}
             onAdvance={advance}
             onDispatch={dispatch}
-            dispatchBusy={activeRuns.length > 0}
+            // Worktree-isolated runs may overlap; only an in-place run (non-git
+            // project) still blocks the next dispatch.
+            dispatchBusy={activeRuns.some(r => r.isolation !== 'worktree')}
             runningTaskId={activeRuns[0]?.taskId ?? null}
           />
         </div>

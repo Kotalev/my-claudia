@@ -6,6 +6,8 @@
  * Every field is optional here: `rate_limits` is present only for claude.ai auth
  * and absent entirely for API-key users, and the schema grows between releases.
  */
+import type { BurnProjection } from '../usage/burn-rate.js'
+
 export interface RateLimitWindow {
   usedPercentage: number
   resetsAt: string | null
@@ -15,6 +17,12 @@ export interface PlanLimits {
   fiveHour: RateLimitWindow | null
   sevenDay: RateLimitWindow | null
   updatedAt: string
+  /**
+   * Projected exhaustion of the 5h window, derived server-side from recent
+   * statusline samples. Never present on a raw parsed report — the session
+   * store fills it in; null when usage is flat, falling, or under-sampled.
+   */
+  fiveHourBurn?: BurnProjection | null
 }
 
 export interface StatuslineReport {
@@ -39,11 +47,23 @@ function num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
+/**
+ * `resets_at` arrives as epoch *seconds* from real Claude Code payloads
+ * (observed live 2026-08-12); the docs' examples show an ISO string. Accept
+ * both, and treat anything past 1e12 as milliseconds.
+ */
+function resetIso(v: unknown): string | null {
+  if (typeof v === 'string' && v.length > 0) return v
+  const n = num(v)
+  if (n === null || n <= 0) return null
+  return new Date(n > 1e12 ? n : n * 1000).toISOString()
+}
+
 function windowOf(v: unknown): RateLimitWindow | null {
   const o = obj(v)
   const used = num(o.used_percentage)
   if (used === null) return null
-  return { usedPercentage: Math.max(0, Math.min(used, 100)), resetsAt: str(o.resets_at) }
+  return { usedPercentage: Math.max(0, Math.min(used, 100)), resetsAt: resetIso(o.resets_at) }
 }
 
 export function parseStatusline(raw: unknown, now = new Date()): StatuslineReport | null {

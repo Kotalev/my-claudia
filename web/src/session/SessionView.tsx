@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowLeft, RotateCw } from 'lucide-react'
+import { ArrowDown, ArrowLeft, RotateCw, Search, X } from 'lucide-react'
 import { useSessionDetail } from './useSessionDetail.js'
 import { ActivityBlock, CompactionDivider, HiddenDivider, TimelineEntry } from './TimelineEntry.js'
 import { relativeTime } from '../shared/format.js'
 import { TelemetryPanel } from './TelemetryPanel.js'
 import { buildChapters, buildTimeline } from './timeline.js'
+import { collectToolNames, filterEntries, isFilterActive } from './filter.js'
 import { Container } from '../shared/Page.js'
 import { StatusDot } from '../shared/StatusDot.js'
 import { FOCUS_RING } from '../shared/focus.js'
@@ -25,13 +26,20 @@ export function SessionView(
   const { summary, entries, loading, error, refetch } = useSessionDetail(sessionId, liveActivity)
   const [follow, setFollow] = useState(true)
   const [activeChapter, setActiveChapter] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [tool, setTool] = useState<string | null>(null)
   const log = useRef<HTMLDivElement>(null)
   const programmatic = useRef(false)
   useClockTick()
 
   const working = summary?.status === 'active'
-  const items = useMemo(() => buildTimeline(entries), [entries])
-  const chapters = useMemo(() => buildChapters(entries), [entries])
+  const filterActive = isFilterActive({ query, tool })
+  const toolNames = useMemo(() => collectToolNames(entries), [entries])
+  // An empty filter passes `entries` through untouched, so today's behaviour
+  // (timeline shape, chapters, follow) is byte-identical until you type.
+  const visible = useMemo(() => filterEntries(entries, { query, tool }), [entries, query, tool])
+  const items = useMemo(() => buildTimeline(visible), [visible])
+  const chapters = useMemo(() => buildChapters(visible), [visible])
 
   // Scrolling away is the clearest possible statement that you want to stay
   // where you are — the transcript used to pull the reader back to the bottom
@@ -63,12 +71,14 @@ export function SessionView(
   // whole array, and when the count happens not to change — a turn rewritten
   // in place, or a truncated tail that drops a head line as it gains one —
   // following used to stop silently with the box still ticked.
+  // A filter pauses auto-follow: the reader is studying a slice, not the tail.
+  // `follow` itself is untouched, so clearing the filter resumes following.
   useEffect(() => {
     const el = log.current
-    if (!follow || !el) return
+    if (!follow || filterActive || !el) return
     programmatic.current = true
     el.scrollTop = el.scrollHeight
-  }, [entries, follow])
+  }, [entries, follow, filterActive])
 
   const jumpTo = (uuid: string): void => {
     const el = log.current
@@ -110,15 +120,16 @@ export function SessionView(
   }
 
   // The live tail carries the caret: the last prose entry of a working session.
+  // A filtered view is a slice of the past, so it never carries the caret.
   const streamingUuid = useMemo(() => {
-    if (!working) return null
+    if (!working || filterActive) return null
     for (let i = items.length - 1; i >= 0; i--) {
       const item = items[i]!
       if (item.kind === 'entry' && item.entry.role === 'assistant') return item.entry.uuid
       if (item.kind === 'entry' || item.kind === 'compaction') return null
     }
     return null
-  }, [items, working])
+  }, [items, working, filterActive])
 
   return (
     // A viewport-height column: the header and the telemetry stay put and only
@@ -173,6 +184,52 @@ export function SessionView(
               reportedCostUsd={summary.reportedCostUsd}
               working={working}
             />
+          </Container>
+        </div>
+      )}
+
+      {/* Filter bar: text narrows by visible text, the dropdown by tool, and
+          the two AND together. While either is active, following pauses. */}
+      {!loading && !error && entries.length > 0 && (
+        <div className="shrink-0 px-4 pt-3 sm:px-8">
+          <Container width="reading">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative min-w-0 flex-1 basis-52">
+                <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-faint" />
+                <input
+                  type="search"
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder="filter this session…"
+                  aria-label="Filter entries by text"
+                  className={`w-full rounded-lg border border-neutral-800 bg-neutral-900 py-1.5 pr-3 pl-8 font-mono text-[11.5px] ${FOCUS_RING} focus:border-neutral-600`}
+                />
+              </div>
+              {toolNames.length > 0 && (
+                <select
+                  value={tool ?? ''}
+                  onChange={e => setTool(e.target.value === '' ? null : e.target.value)}
+                  aria-label="Filter entries by tool"
+                  className={`rounded-lg border border-neutral-800 bg-neutral-900 px-2 py-1.5 font-mono text-[11.5px] ${tool === null ? 'text-faint' : 'text-neutral-200'} ${FOCUS_RING} focus:border-neutral-600`}
+                >
+                  <option value="">all tools</option>
+                  {toolNames.map(name => <option key={name} value={name}>{name}</option>)}
+                </select>
+              )}
+              {filterActive && (
+                <>
+                  <span className="font-mono text-[11px] text-muted">{visible.length} of {entries.length}</span>
+                  <button
+                    type="button"
+                    onClick={() => { setQuery(''); setTool(null) }}
+                    className={`inline-flex items-center gap-1 rounded px-1.5 py-1 font-mono text-[11px] text-faint hover:bg-neutral-875 hover:text-neutral-200 ${FOCUS_RING}`}
+                  >
+                    <X aria-hidden="true" className="size-3" />
+                    clear
+                  </button>
+                </>
+              )}
+            </div>
           </Container>
         </div>
       )}
@@ -235,6 +292,9 @@ export function SessionView(
               </div>
             )}
             {!loading && !error && entries.length === 0 && <p className="p-4 text-faint">No entries parsed yet.</p>}
+            {!loading && !error && entries.length > 0 && filterActive && visible.length === 0 && (
+              <p className="p-4 font-mono text-[11.5px] text-faint">no entries match this filter</p>
+            )}
             {items.map(item => {
               switch (item.kind) {
                 case 'compaction':
@@ -259,7 +319,7 @@ export function SessionView(
 
       {/* With Follow off, the checkbox looked identical whether the transcript
           was one entry ahead of the reader or forty. */}
-      {!follow && entries.length > 0 && (
+      {!follow && !filterActive && entries.length > 0 && (
         <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
           <button
             onClick={jumpToLatest}

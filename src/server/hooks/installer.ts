@@ -5,6 +5,9 @@ import { resolveClaudeDir } from '../../shared/config.js'
 
 export const HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'Stop', 'PostToolUse'] as const
 
+/** Answered from the dashboard, so it gets its own blocking script — see SPEC 8.11. */
+export const PERMISSION_EVENT = 'PermissionRequest'
+
 export interface InstallResult {
   settingsPath: string
   backupPath: string | null
@@ -12,6 +15,8 @@ export interface InstallResult {
   alreadyPresent: string[]
   /** True when the statusline forwarder was newly wired in. */
   statusLine: boolean
+  /** True when the PermissionRequest hook was newly wired in. */
+  permissionPrompt: boolean
 }
 
 interface HookCommand { type: 'command'; command: string; timeout?: number }
@@ -26,6 +31,49 @@ export function buildHookEntry(scriptPath: string): HookCommand {
   // No matcher: matcher semantics have changed across Claude Code releases, and
   // we want every occurrence of these events regardless.
   return { type: 'command', command: shellQuote(scriptPath), timeout: 1 }
+}
+
+export function buildPermissionEntry(scriptPath: string): HookCommand {
+  // 30s, not 1: blocking is this hook's whole purpose — the window is how a
+  // dashboard click reaches the prompt. Timing out is still safe: no stdout
+  // means Claude Code falls back to its normal terminal prompt.
+  return { type: 'command', command: shellQuote(scriptPath), timeout: 30 }
+}
+
+/**
+ * Adds the PermissionRequest hook beside whatever groups the user already has
+ * for that event, matcher `*` so every tool's prompt reaches the dashboard.
+ * Kept apart from mergeHooks: a different script, a different timeout, and a
+ * failure philosophy of "block, then fall back" rather than "never block".
+ */
+export function mergePermissionHook(
+  existing: unknown,
+  scriptPath: string,
+): { settings: Record<string, unknown>; changed: boolean } {
+  const base: Record<string, unknown> =
+    typeof existing === 'object' && existing !== null && !Array.isArray(existing)
+      ? { ...(existing as Record<string, unknown>) }
+      : {}
+
+  const hooksRaw = base.hooks
+  const hooks: Record<string, HookGroup[]> =
+    typeof hooksRaw === 'object' && hooksRaw !== null && !Array.isArray(hooksRaw)
+      ? { ...(hooksRaw as Record<string, HookGroup[]>) }
+      : {}
+
+  const groups = Array.isArray(hooks[PERMISSION_EVENT]) ? [...hooks[PERMISSION_EVENT]] : []
+  const quoted = shellQuote(scriptPath)
+  const present = groups.some(g =>
+    Array.isArray(g?.hooks) && g.hooks.some(h => h?.command === quoted))
+  if (present) {
+    base.hooks = hooks
+    return { settings: base, changed: false }
+  }
+
+  groups.push({ matcher: '*', hooks: [buildPermissionEntry(scriptPath)] })
+  hooks[PERMISSION_EVENT] = groups
+  base.hooks = hooks
+  return { settings: base, changed: true }
 }
 
 // Hooks are a per-machine concern (they carry absolute paths into this
@@ -128,6 +176,7 @@ export async function installHooks(
   projectPath: string,
   scriptPath: string,
   statuslineScript?: string,
+  permissionScript?: string,
 ): Promise<InstallResult> {
   // The one file this project must never touch is the Claude data dir's own
   // settings.json — and registering $HOME as a project would make exactly that
@@ -168,17 +217,31 @@ export async function installHooks(
     merged = result.settings
     statusLine = result.changed
   }
+  let permissionPrompt = false
+  if (permissionScript) {
+    const result = mergePermissionHook(merged, permissionScript)
+    merged = result.settings
+    permissionPrompt = result.changed
+  }
   await writeFile(settingsPath, JSON.stringify(merged, null, 2) + '\n', 'utf8')
 
-  return { settingsPath, backupPath, installed, alreadyPresent, statusLine }
+  return { settingsPath, backupPath, installed, alreadyPresent, statusLine, permissionPrompt }
 }
 
-export async function isInstalled(projectPath: string, scriptPath: string): Promise<boolean> {
+export async function isInstalled(
+  projectPath: string,
+  scriptPath: string,
+  permissionScript?: string,
+): Promise<boolean> {
   const raw = await readFile(settingsPathFor(projectPath), 'utf8').catch(() => null)
   if (raw === null) return false
   try {
-    const { alreadyPresent } = mergeHooks(JSON.parse(raw), scriptPath)
-    return alreadyPresent.length === HOOK_EVENTS.length
+    const parsed: unknown = JSON.parse(raw)
+    const { alreadyPresent } = mergeHooks(parsed, scriptPath)
+    if (alreadyPresent.length !== HOOK_EVENTS.length) return false
+    // "Installed" now includes the permission hook: an older install without
+    // it should offer the button again rather than claim it is complete.
+    return permissionScript ? !mergePermissionHook(parsed, permissionScript).changed : true
   } catch {
     return false
   }

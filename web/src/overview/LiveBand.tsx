@@ -1,6 +1,6 @@
 import type { ProjectRecord, SessionSummary } from '../shared/types.js'
 import { STATUS_LABELS, STATUS_ORDER, STATUS_TEXT, elapsed } from '../shared/format.js'
-import { ContextBar } from '../shared/ContextBar.js'
+import { ContextBar, contextPressure } from '../shared/ContextBar.js'
 import { StatusDot } from '../shared/StatusDot.js'
 import { FOCUS_RING } from '../shared/focus.js'
 
@@ -88,8 +88,39 @@ function LiveRow(
           <span className={`font-mono text-[10.5px] tracking-[0.1em] uppercase ${STATUS_TEXT[status]}`}>
             {STATUS_LABELS[status]}
           </span>
+          {/* How long the prompt has been open — statusUpdatedAt is written only
+              on the transition, so it dates the wait itself. Null means the
+              transition was never dated, and an undated wait gets no timer. */}
+          {waiting && live?.statusUpdatedAt && (
+            <span className="font-mono text-[11px] text-alarm">
+              waiting {elapsed(live.statusUpdatedAt)}
+            </span>
+          )}
+          {session.gitBranch && (
+            <span className="max-w-40 truncate font-mono text-[11px] text-muted">
+              {session.gitBranch}
+            </span>
+          )}
           <ContextBar usage={session.usage} working={status === 'active'} />
+          {contextPressure(session.usage) && (
+            <span data-testid="compaction-hint" className="font-mono text-[11px] text-alarm">
+              compaction soon
+            </span>
+          )}
         </span>
+        {session.filesTouched.length > 0 && (
+          <span className={`flex flex-wrap gap-x-2.5 gap-y-0.5 ${SUB_ROW}`}>
+            {session.filesTouched.slice(-3).map(path => (
+              <span
+                key={path}
+                title={path}
+                className="max-w-44 truncate font-mono text-[11px] text-faint"
+              >
+                {path.split('/').pop() ?? path}
+              </span>
+            ))}
+          </span>
+        )}
         {live?.waitingFor && (
           <span className={`font-mono text-xs text-alarm ${SUB_ROW}`}>waiting for {live.waitingFor}</span>
         )}

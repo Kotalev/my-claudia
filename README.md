@@ -24,6 +24,18 @@ no account, no telemetry.
 
 ## Running it
 
+Without cloning, run the published package:
+
+```bash
+npx claude-mission-control
+```
+
+This starts the whole dashboard — API and built UI — on `127.0.0.1:4517`.
+State files (`projects.json`, `.auth-token`) are created in the directory you
+run it from.
+
+From a checkout:
+
 ```bash
 npm install
 npm run dev          # API on :4517, UI on :4518
@@ -142,6 +154,7 @@ test/fixtures/    real anonymized transcripts and malformed samples
 | Command | What it does |
 |---|---|
 | `npm run dev` | API + UI with hot reload |
+| `npm run build` | compile server to `dist/`, build UI to `web/dist/` |
 | `npm start` | API only, serving on :4517 |
 | `npm test` | Vitest |
 | `npm run lint` | eslint + `tsc --noEmit` |

@@ -1,13 +1,13 @@
 import Fastify, { LogController, type FastifyInstance } from 'fastify'
 import websocket from '@fastify/websocket'
-import fastifyStatic from '@fastify/static'
 import { join } from 'node:path'
-import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { HOST, PORT } from '../shared/config.js'
 import { ProjectRegistry } from './registry.js'
 import { registerProjectRoutes } from './routes/projects.js'
 import { registerSessionRoutes } from './routes/sessions.js'
+import { registerExportRoutes } from './routes/export.js'
+import { registerSearchRoutes } from './routes/search.js'
 import { registerTaskRoutes } from './routes/tasks.js'
 import { TaskStore } from '../tasks/store.js'
 import { SessionStore } from './watcher/session-store.js'
@@ -17,11 +17,15 @@ import { EventHub } from './ws/hub.js'
 import { isAllowedHost, isAllowedOrigin } from './origin-guard.js'
 import { extractToken, loadOrCreateToken, requiresToken, tokenMatches } from './auth.js'
 import { Dispatcher } from './dispatcher/index.js'
+import { pruneStaleWorktrees } from './dispatcher/worktree.js'
 import { registerDispatchRoutes } from './routes/dispatch.js'
 import { registerHookRoutes } from './routes/hooks.js'
+import { PermissionBroker, registerPermissionRoutes } from './routes/permissions.js'
 import { registerStatuslineRoutes } from './routes/statusline.js'
 import { registerHookInstallRoutes } from './routes/hook-install.js'
 import { SessionsRegistry } from './live/sessions-registry.js'
+import { startAlerts } from './alerts/index.js'
+import { registerStatic } from './static.js'
 import { AgentsPoller, mergeLive } from './live/agents-poller.js'
 import { SpendLedger } from './usage/spend-ledger.js'
 import { readAccountEmail } from './usage/account.js'
@@ -32,6 +36,7 @@ import type { AccountInfo, ProjectRecord } from '../shared/types.js'
 /** Absolute path to the forwarder, resolved once — a project's settings must not hold a relative path. */
 const HOOK_SCRIPT_PATH = fileURLToPath(new URL('../../scripts/hook-post.sh', import.meta.url))
 const STATUSLINE_SCRIPT_PATH = fileURLToPath(new URL('../../scripts/statusline.sh', import.meta.url))
+const PERMISSION_SCRIPT_PATH = fileURLToPath(new URL('../../scripts/permission-prompt.sh', import.meta.url))
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -64,6 +69,10 @@ export async function buildServer(
   await watcher.start()
 
   const dispatcher = new Dispatcher()
+  // Runs are in-memory only, so after a restart every directory under
+  // .worktrees is an orphan from a previous process. Prune before any dispatch
+  // can create a fresh one.
+  await pruneStaleWorktrees(join(process.cwd(), '.worktrees'), new Set(dispatcher.list().map(r => r.runId)))
 
   // Claude Code's own live-session registry. Started before the hub so the first
   // snapshot already carries the running processes rather than an empty band.
@@ -100,6 +109,8 @@ export async function buildServer(
     return account
   }
 
+  const permissionBroker = new PermissionBroker()
+
   const hub = new EventHub(() => ({
     projects: registry.list(),
     sessions: store.all(),
@@ -107,7 +118,12 @@ export async function buildServer(
     planLimits: store.planLimits(),
     spend: spendLedger.summary(),
     account: accountInfo(),
+    permissions: permissionBroker.list(),
   }))
+  permissionBroker.onRequested = request =>
+    hub.broadcast({ type: 'permission.requested', request })
+  permissionBroker.onResolved = (id, behavior) =>
+    hub.broadcast({ type: 'permission.resolved', id, behavior })
   watcher.on('session', session => hub.broadcast({ type: 'session.updated', session }))
 
   // Entries arrive in bursts during a turn; one spend figure per ~2s is plenty
@@ -193,6 +209,8 @@ export async function buildServer(
     }
   })
   registerSessionRoutes(app, store, registry)
+  registerExportRoutes(app, registry, store, spendLedger)
+  registerSearchRoutes(app, store, registry)
   const publishTasks = (projectId: string): void => {
     const project = registry.byId(projectId)
     if (!project) return
@@ -206,13 +224,14 @@ export async function buildServer(
   registerDispatchRoutes(app, registry, dispatcher, publishTasks)
   registerHookRoutes(app, store, registry, session =>
     hub.broadcast({ type: 'session.updated', session }))
+  registerPermissionRoutes(app, permissionBroker)
   registerStatuslineRoutes(
     app,
     store,
     session => hub.broadcast({ type: 'session.updated', session }),
     () => hub.broadcast({ type: 'plan.updated', planLimits: store.planLimits() }),
   )
-  registerHookInstallRoutes(app, registry, HOOK_SCRIPT_PATH, STATUSLINE_SCRIPT_PATH)
+  registerHookInstallRoutes(app, registry, HOOK_SCRIPT_PATH, STATUSLINE_SCRIPT_PATH, PERMISSION_SCRIPT_PATH)
 
   app.get('/ws', { websocket: true }, socket => {
     const send = (payload: string) => socket.send(payload)
@@ -231,18 +250,14 @@ export async function buildServer(
   }, 60_000)
   sweep.unref()
 
+  const alerts = startAlerts({
+    getSessions: () => store.all(),
+    getFiveHour: () => store.planLimits()?.fiveHour ?? null,
+  })
+
   // In production the API also serves the built UI, so `npm start` is the whole
   // dashboard on one port. In dev the Vite server owns the UI and proxies here.
-  const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url))
-  if (existsSync(join(webDist, 'index.html'))) {
-    await app.register(fastifyStatic, { root: webDist })
-    app.setNotFoundHandler((req, reply) => {
-      if (req.url.startsWith('/api') || req.url.startsWith('/ws')) {
-        return reply.code(404).send({ error: 'not found' })
-      }
-      return reply.sendFile('index.html')
-    })
-  }
+  await registerStatic(app)
 
   app.decorate('authToken', authToken)
   app.decorate('registry', registry)
@@ -254,6 +269,7 @@ export async function buildServer(
   app.decorate('hub', hub)
   app.addHook('onClose', async () => {
     clearInterval(sweep)
+    alerts.stop()
     if (spendTimer) clearTimeout(spendTimer)
     agentsPoller.stop()
     await Promise.all([watcher.stop(), tasksWatcher.stop(), sessionsRegistry.stop()])

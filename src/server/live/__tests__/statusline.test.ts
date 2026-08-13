@@ -46,6 +46,22 @@ describe('parseStatusline', () => {
     expect(r.limits?.sevenDay).toBeNull()
   })
 
+  it('accepts resets_at as epoch seconds — the shape Claude Code actually sends', () => {
+    // Observed live 2026-08-12: {"five_hour":{"used_percentage":6,"resets_at":1786581000}}
+    const r = parseStatusline({ rate_limits: { five_hour: { used_percentage: 6, resets_at: 1786581000 } } })!
+    expect(r.limits?.fiveHour?.resetsAt).toBe('2026-08-13T00:30:00.000Z')
+  })
+
+  it('accepts resets_at as epoch milliseconds', () => {
+    const r = parseStatusline({ rate_limits: { five_hour: { used_percentage: 6, resets_at: 1786581000_000 } } })!
+    expect(r.limits?.fiveHour?.resetsAt).toBe('2026-08-13T00:30:00.000Z')
+  })
+
+  it('drops an unusable resets_at number', () => {
+    const r = parseStatusline({ rate_limits: { five_hour: { used_percentage: 6, resets_at: NaN } } })!
+    expect(r.limits?.fiveHour?.resetsAt).toBeNull()
+  })
+
   it('clamps a percentage outside 0..100', () => {
     const r = parseStatusline({ rate_limits: { five_hour: { used_percentage: 140 } } })!
     expect(r.limits?.fiveHour?.usedPercentage).toBe(100)

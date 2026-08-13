@@ -2,6 +2,19 @@ import type { SessionUsage } from '@shared/types.js'
 import { occupancyFraction, contextWindowFor } from '@shared/pricing.js'
 import { compactTokens, shortModel, agoLabel } from './usage-format.js'
 
+/** Occupancy at or above this fraction is the compaction warning. */
+export const CONTEXT_WARN_FRACTION = 0.85
+
+/**
+ * Whether this session's context is full enough to warn about. Fails open the
+ * same way the bar does: an unknown occupancy (no tokens yet, or no known
+ * window for the model) is never a warning.
+ */
+export function contextPressure(usage: SessionUsage): boolean {
+  const fraction = occupancyFraction(usage.contextTokens, usage.contextModel)
+  return fraction !== null && fraction >= CONTEXT_WARN_FRACTION
+}
+
 /**
  * How full the context window is — the number that changes what a person does
  * next, and the one honest headline for a subscriber. It deliberately fails
@@ -28,7 +41,7 @@ export function ContextBar(
     )
   }
 
-  const tight = fraction !== null && fraction > 0.8
+  const tight = contextPressure(usage)
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2.5 font-mono text-[11.5px]" data-testid="context-bar">
       {fraction !== null && (

@@ -1,10 +1,15 @@
 import type { ParseStats, TranscriptEntry } from '../../transcript/types.js'
 import type { LiveProcess, ProjectRecord, SessionStatus, SessionSummary } from '../../shared/types.js'
 import { UsageAccumulator } from './usage.js'
+import { gitBranch } from '../live/git-branch.js'
 import type { PlanLimits, StatuslineReport } from '../live/statusline.js'
+import { computeBurnRate, type BurnSample } from '../usage/burn-rate.js'
 
 /** A session with no activity for this long is no longer "active". */
 export const ACTIVE_WINDOW_MS = 5 * 60 * 1000
+
+/** Statusline samples older than this cannot say anything about the current pace. */
+export const BURN_SAMPLE_WINDOW_MS = 2 * 60 * 60 * 1000
 
 /**
  * Entries retained per session. Startup backfill is capped at 1 MB per file, but
@@ -72,6 +77,8 @@ export class SessionStore {
   #sessions = new Map<string, SessionState>()
   /** Account-wide, not per session: the 5h and 7d plan windows. */
   #planLimits: PlanLimits | null = null
+  /** Recent 5h-window readings, oldest first, for the burn-rate projection. */
+  #fiveHourSamples: BurnSample[] = []
   #spendSink: SpendSink | null = null
 
   /** The sink sees exactly what the per-session accumulator sees — deduplicated, project-attributed entries. */
@@ -186,7 +193,19 @@ export class SessionStore {
    * own. Returns the affected summary when there is one to broadcast.
    */
   applyStatusline(report: StatuslineReport): SessionSummary | undefined {
-    if (report.limits) this.#planLimits = report.limits
+    if (report.limits) {
+      this.#planLimits = report.limits
+      if (report.limits.fiveHour) {
+        const atMs = Date.parse(report.limits.updatedAt)
+        if (Number.isFinite(atMs)) {
+          this.#fiveHourSamples.push({ usedPercentage: report.limits.fiveHour.usedPercentage, atMs })
+          const cutoff = atMs - BURN_SAMPLE_WINDOW_MS
+          while (this.#fiveHourSamples[0] && this.#fiveHourSamples[0].atMs < cutoff) {
+            this.#fiveHourSamples.shift()
+          }
+        }
+      }
+    }
     if (report.sessionId === null) return undefined
     const state = this.#state(report.sessionId)
     if (report.reportedCostUsd !== null) state.reportedCostUsd = report.reportedCostUsd
@@ -218,7 +237,8 @@ export class SessionStore {
   }
 
   planLimits(): PlanLimits | null {
-    return this.#planLimits
+    if (!this.#planLimits) return null
+    return { ...this.#planLimits, fiveHourBurn: computeBurnRate(this.#fiveHourSamples) }
   }
 
   get(sessionId: string): SessionSummary | undefined {
@@ -302,6 +322,10 @@ export class SessionStore {
       skippedUnknown: state.skippedUnknown,
       historyTruncated: state.historyTruncated,
       live: state.live,
+      // Only a live process names a cwd worth reading: a finished session's
+      // branch may have moved on since, and showing today's branch as that
+      // session's would be a guess dressed as a fact.
+      gitBranch: state.live?.cwd ? gitBranch(state.live.cwd) : null,
       usage: state.usage.snapshot(),
       reportedCostUsd: state.reportedCostUsd,
     }

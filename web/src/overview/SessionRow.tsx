@@ -1,5 +1,5 @@
 import type { SessionSummary } from '../shared/types.js'
-import { relativeTime, STATUS_LABELS, STATUS_TEXT } from '../shared/format.js'
+import { elapsed, relativeTime, STATUS_LABELS, STATUS_TEXT } from '../shared/format.js'
 import { StatusDot } from '../shared/StatusDot.js'
 import { FOCUS_RING } from '../shared/focus.js'
 
@@ -41,6 +41,10 @@ export function SessionRow(
             amber and emerald are the pair a red-green deficiency collapses. */}
         <span className={`block font-mono text-[11px] ${status === 'done' ? 'text-dim' : 'text-faint'}`}>
           <span className={STATUS_TEXT[status]}>{STATUS_LABELS[status]}</span>
+          {/* statusUpdatedAt dates the transition itself; when it is missing the
+              wait cannot be dated and no timer is shown. */}
+          {status === 'waiting' && session.live?.statusUpdatedAt
+            && <span className="text-alarm">{` · waiting ${elapsed(session.live.statusUpdatedAt)}`}</span>}
           {' · '}{relativeTime(session.lastActivity)} · {session.messageCount} msgs
           {session.hasSidechain && ' · subagents'}
           {session.historyTruncated && ' · partial history'}

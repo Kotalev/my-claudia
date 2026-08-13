@@ -8,6 +8,8 @@ const mode = process.env.FAKE_CLAUDE_MODE ?? 'ok'
 console.log(JSON.stringify({ type: 'system', subtype: 'hook_started', hook: 'SessionStart' }))
 console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'fake-session-123', model: 'claude-fable-5' }))
 console.log(JSON.stringify({ type: 'assistant', argv: args, message: { content: [{ type: 'text', text: `args:${args.length}` }] } }))
+// Worktree isolation tests read this back to prove the run started in its own tree.
+console.log(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: `cwd:${process.cwd()}` }] } }))
 
 if (mode === 'crash') process.exit(3)
 if (mode === 'hang') { setInterval(() => {}, 1000) }

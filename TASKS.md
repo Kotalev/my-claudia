@@ -2,12 +2,26 @@
 
 ## Todo
 
-
+- [ ] **T-059** Finished sessions show WORKING for ~5 min: registry `idle` must beat freshness in `deriveStatus`; keep the fresh fallback only for status-less (sdk-cli) processes `#p1`
 
 ## In progress
 
-
 ## Done
+
+- [x] **T-053** Context-pressure warning: occupancy amber ≥85% + "compaction soon" flag on Live rows `#m13` `#p2` (2026-08-13)
+- [x] **T-054** In-session search: filter the open transcript by text and by tool on the Session screen `#m13` `#p2` (2026-08-13)
+- [x] **T-055** Answer permission prompts from the dashboard: PermissionRequest hook holds the decision, timeout falls back to the terminal `#m13` `#p1` (2026-08-13)
+- [x] **T-056** Outbound alert webhook: single POST when a session waits > N min or the 5h window nears its limit `#m13` `#p2` (2026-08-13)
+- [x] **T-057** npx distribution: build + bin entry, prod server serves the built frontend `#m13` `#p2` (2026-08-13)
+- [x] **T-058** Worktree-isolated dispatch with a diff review before merge `#m13` `#p1` (2026-08-13)
+
+- [x] **T-046** Waiting rows show "waiting Xm" from `statusUpdatedAt`, ticking live `#m12` `#p1` (2026-08-12)
+- [x] **T-047** Plan band: live "resets in Xh Ym" countdown from the statusline 5h/7d windows `#m12` `#p1` (2026-08-12)
+- [x] **T-048** Opt-in audio alert when a session enters `waiting`, alongside the Web Notification `#m12` `#p2` (2026-08-12)
+- [x] **T-049** Live rows show current git branch (read from cwd) and recently touched files `#m12` `#p2` (2026-08-12)
+- [x] **T-050** Spend: weekly/monthly rollups + 5h-block burn rate with projected limit-hit time `#m12` `#p2` (2026-08-12)
+- [x] **T-051** JSON export: `GET /api/export` for sessions summary + spend ledger `#m12` `#p3` (2026-08-12)
+- [x] **T-052** In-memory search across parsed session entries, search box on Overview `#m12` `#p2` (2026-08-12)
 
 - [x] **T-045** Implement the Mission Control Screens redesign (claude.ai/design): IBM Plex type, state/motion token layer (orbit·pulse·shimmer·beacon·caret), instrument PLAN+SPEND band, live rows with motion, task board with compact DONE, transcript hierarchy with chapters, activity blocks and collapsed bookkeeping `#m11` `#p1` (2026-08-12)
 
@@ -58,6 +72,17 @@
 
 ## Progress log
 
+- 2026-08-13 06:45 T-053..T-058 — all six done, browser-verified against the prod build (npx path); 554 tests, lint clean
+- 2026-08-13 06:42 T-058 — review diff missed the run's own commits (diff HEAD); base commit now recorded and diffed against
+- 2026-08-13 06:37 T-058 — full cycle live: worktree run committed, diff shown, dirty-tree merge 409, clean merge --no-ff landed
+- 2026-08-13 06:35 T-055 — live: card Allow/Deny reaches the hook's stdout; timeout and server-down fall back to the terminal
+- 2026-08-13 06:20 T-053..T-057 — wave 1 + 2 landed via 6 workflow agents; note: bar's amber threshold unified 0.80 → 0.85
+- 2026-08-13 06:07 T-059 — diagnosed: Stop hook + statusline bump hookActivity at turn end, so live-idle sessions read `active` for ACTIVE_WINDOW_MS; repro via SessionStore
+- 2026-08-13 06:02 T-053..T-058 — round 2 of competitor adoption queued; workflow implementation starting (2 waves)
+- 2026-08-12 23:25 T-046..T-052 — all done; browser-verified (waiting timer via stubbed snapshot: a pty probe session never wrote a registry json, so real `waiting` was unreachable from a script)
+- 2026-08-12 22:57 T-047 — real statusline payloads carry resets_at as epoch seconds, not ISO; parser now accepts both (tested)
+- 2026-08-12 22:50 T-046..T-052 — all seven implemented via 6 workflow agents, 474 tests green; browser verification in progress
+- 2026-08-12 22:37 T-046..T-052 — seven competitor-inspired features queued from the 2026-08-12 competitive analysis; starting workflow implementation
 - 2026-08-12 17:35 T-045 — Type switched to Archivo + Martian Mono (both SIL OFL, free) after a 6-variant comparison in docs/design/font-variants.html; browser-verified.
 
 - 2026-08-12 16:55 T-045 — Contrast pass: faint #8b9195 (~6:1), dim #7b8187 (~4.9:1); mock's #4c5457 was 2.6:1. Dropped opacity-70 on done rows/column — tokens carry the recede.

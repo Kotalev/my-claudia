@@ -1,4 +1,5 @@
 import type { SessionStatus, SessionSummary } from './types.js'
+import { isChimeEnabled, playChime } from './chime.js'
 
 /**
  * Desktop notification when a session blocks on the user.
@@ -108,6 +109,9 @@ export function fire(session: SessionSummary, onOpen: (sessionId: string) => voi
   }
   open.get(session.sessionId)?.close()
   open.set(session.sessionId, n)
+  // Below every guard on purpose: the chime accompanies a shown notification,
+  // it is not a second channel that can sound when the notification could not.
+  if (isChimeEnabled()) playChime()
 }
 
 export function dismiss(sessionId: string): void {

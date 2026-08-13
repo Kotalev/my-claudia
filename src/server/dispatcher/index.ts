@@ -3,7 +3,9 @@ import type { RunHandle, RunStatus } from '../../shared/types.js'
 import { EventEmitter } from 'node:events'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
 import { renderStreamLine } from './stream.js'
+import { createWorktree, isGitRepo } from './worktree.js'
 
 
 interface Run extends RunHandle {
@@ -17,6 +19,8 @@ export interface DispatcherOptions {
   /** Injected before the real flags; the test harness uses it to run a fake binary. */
   extraArgs?: string[]
   timeoutMs?: number
+  /** Where linked worktrees live — outside every project tree. */
+  worktreesRoot?: string
 }
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
@@ -26,12 +30,14 @@ export class Dispatcher extends EventEmitter {
   #bin: string
   #extraArgs: string[]
   #timeoutMs: number
+  #worktreesRoot: string
 
   constructor(opts: DispatcherOptions = {}) {
     super()
     this.#bin = opts.claudeBin ?? 'claude'
     this.#extraArgs = opts.extraArgs ?? []
     this.#timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    this.#worktreesRoot = opts.worktreesRoot ?? join(process.cwd(), '.worktrees')
   }
 
   list(): RunHandle[] {
@@ -43,16 +49,31 @@ export class Dispatcher extends EventEmitter {
     return run ? this.#handle(run) : undefined
   }
 
-  start(input: { projectId: string; projectPath: string; taskId: string; prompt: string }): RunHandle {
-    const live = [...this.#runs.values()].find(r => r.projectId === input.projectId && r.endedAt === null)
-    if (live) throw new Error(`a run is already running for project ${input.projectId}`)
+  async start(input: { projectId: string; projectPath: string; taskId: string; prompt: string }): Promise<RunHandle> {
+    const worktreeIsolated = isGitRepo(input.projectPath)
+    if (!worktreeIsolated) {
+      // In-place runs share the project directory, so they keep the old
+      // 1-per-project guard. Worktree runs each get their own tree instead.
+      const live = [...this.#runs.values()].find(r => r.projectId === input.projectId && r.endedAt === null)
+      if (live) throw new Error(`a run is already running for project ${input.projectId}`)
+    }
 
     const runId = randomUUID()
+    let branch: string | null = null
+    let worktreeDir: string | null = null
+    let baseCommit: string | null = null
+    if (worktreeIsolated) {
+      const wt = await createWorktree(input.projectPath, this.#worktreesRoot, runId)
+      branch = wt.branch
+      worktreeDir = wt.dir
+      baseCommit = wt.base
+    }
+
     // The prompt is one argv element — never interpolated into a shell string.
     // No --bare: the target project's CLAUDE.md and hooks must load.
     const args = [...this.#extraArgs, '-p', input.prompt, '--output-format', 'stream-json', '--verbose']
     const child = spawn(this.#bin, args, {
-      cwd: input.projectPath,
+      cwd: worktreeDir ?? input.projectPath,
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: false,
     })
@@ -66,6 +87,13 @@ export class Dispatcher extends EventEmitter {
       startedAt: new Date().toISOString(),
       endedAt: null,
       exitCode: null,
+      isolation: worktreeIsolated ? 'worktree' : 'in-place',
+      branch,
+      worktreeDir,
+      baseCommit,
+      diffAvailable: worktreeIsolated,
+      merged: false,
+      discarded: false,
       child,
       buffer: '',
       timer: setTimeout(() => this.cancel(runId), this.#timeoutMs),
@@ -95,6 +123,21 @@ export class Dispatcher extends EventEmitter {
     // SIGTERM aborts the turn cleanly, kills the child's process tree and runs
     // SessionEnd hooks, rather than orphaning a half-finished session.
     run.child.kill('SIGTERM')
+    return true
+  }
+
+  /**
+   * Records the outcome of a worktree run once the worktree itself is gone.
+   * The git work happens in the routes; this only mutates the handle so every
+   * client sees the run flip to merged/discarded over the socket.
+   */
+  markResolved(runId: string, outcome: 'merged' | 'discarded'): boolean {
+    const run = this.#runs.get(runId)
+    if (!run) return false
+    run[outcome] = true
+    run.diffAvailable = false
+    run.worktreeDir = null
+    this.#update(run)
     return true
   }
 

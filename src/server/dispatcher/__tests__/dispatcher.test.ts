@@ -22,7 +22,7 @@ afterEach(() => { delete process.env.FAKE_CLAUDE_MODE })
 describe('Dispatcher', () => {
   it('captures the session id from the init event, not the first line', async () => {
     const d = makeDispatcher()
-    const handle = d.start(input)
+    const handle = await d.start(input)
     await ended(d, handle.runId)
     expect(d.list()[0]!.sessionId).toBe('fake-session-123')
   })
@@ -31,7 +31,7 @@ describe('Dispatcher', () => {
     const d = makeDispatcher()
     const chunks: string[] = []
     d.on('output', (e: { chunk: string }) => chunks.push(e.chunk))
-    const handle = d.start(input)
+    const handle = await d.start(input)
     await ended(d, handle.runId)
     const out = chunks.join('')
     expect(out).toContain('session fake-session-123')
@@ -40,7 +40,7 @@ describe('Dispatcher', () => {
 
   it('marks a clean exit as succeeded', async () => {
     const d = makeDispatcher()
-    const handle = d.start(input)
+    const handle = await d.start(input)
     await ended(d, handle.runId)
     expect(d.list()[0]!.status).toBe('succeeded')
     expect(d.list()[0]!.exitCode).toBe(0)
@@ -49,7 +49,7 @@ describe('Dispatcher', () => {
   it('marks a non-zero exit as failed', async () => {
     process.env.FAKE_CLAUDE_MODE = 'crash'
     const d = makeDispatcher()
-    const handle = d.start(input)
+    const handle = await d.start(input)
     await ended(d, handle.runId)
     expect(d.list()[0]!.status).toBe('failed')
   })
@@ -57,8 +57,8 @@ describe('Dispatcher', () => {
   it('refuses a second concurrent run for the same project', async () => {
     process.env.FAKE_CLAUDE_MODE = 'hang'
     const d = makeDispatcher()
-    const first = d.start(input)
-    expect(() => d.start(input)).toThrow(/already running/i)
+    const first = await d.start(input)
+    await expect(d.start(input)).rejects.toThrow(/already running/i)
     d.cancel(first.runId)
     await ended(d, first.runId)
   })
@@ -66,8 +66,8 @@ describe('Dispatcher', () => {
   it('allows a run in a different project at the same time', async () => {
     process.env.FAKE_CLAUDE_MODE = 'hang'
     const d = makeDispatcher()
-    const a = d.start(input)
-    const b = d.start({ ...input, projectId: 'p2' })
+    const a = await d.start(input)
+    const b = await d.start({ ...input, projectId: 'p2' })
     expect(d.list()).toHaveLength(2)
     d.cancel(a.runId); d.cancel(b.runId)
     await Promise.all([ended(d, a.runId), ended(d, b.runId)])
@@ -76,7 +76,7 @@ describe('Dispatcher', () => {
   it('cancels a hanging run', async () => {
     process.env.FAKE_CLAUDE_MODE = 'hang'
     const d = makeDispatcher()
-    const handle = d.start(input)
+    const handle = await d.start(input)
     const done = ended(d, handle.runId)
     expect(d.cancel(handle.runId)).toBe(true)
     await done
@@ -86,7 +86,7 @@ describe('Dispatcher', () => {
   it('kills a run that exceeds the supervisor timeout', async () => {
     process.env.FAKE_CLAUDE_MODE = 'hang'
     const d = makeDispatcher(300)
-    const handle = d.start(input)
+    const handle = await d.start(input)
     await ended(d, handle.runId)
     expect(d.list()[0]!.status).toBe('cancelled')
   }, 10_000)
@@ -96,7 +96,7 @@ describe('Dispatcher', () => {
     const chunks: string[] = []
     d.on('output', (e: { chunk: string }) => chunks.push(e.chunk))
     const nasty = 'rm -rf / ; echo pwned && cat /etc/passwd'
-    const handle = d.start({ ...input, prompt: nasty })
+    const handle = await d.start({ ...input, prompt: nasty })
     await ended(d, handle.runId)
 
     // fake-claude echoes its own argv: the whole prompt must arrive intact as
@@ -109,7 +109,7 @@ describe('Dispatcher', () => {
 
   it('reports a run that could not be spawned as failed', async () => {
     const d = new Dispatcher({ claudeBin: '/nonexistent/claude-binary', timeoutMs: 5000 })
-    const handle = d.start(input)
+    const handle = await d.start(input)
     await ended(d, handle.runId)
     expect(d.list()[0]!.status).toBe('failed')
   })
@@ -118,7 +118,7 @@ describe('Dispatcher', () => {
 describe('Dispatcher — what claude reported', () => {
   it('keeps the run cost and turn count from the result event', async () => {
     const d = makeDispatcher()
-    const handle = d.start(input)
+    const handle = await d.start(input)
     await ended(d, handle.runId)
     const run = d.get(handle.runId)!
     expect(run.costUsd).toBe(0.01)
@@ -128,7 +128,7 @@ describe('Dispatcher — what claude reported', () => {
   it('reports null rather than zero when the run never said', async () => {
     process.env.FAKE_CLAUDE_MODE = 'crash'
     const d = makeDispatcher()
-    const handle = d.start(input)
+    const handle = await d.start(input)
     await ended(d, handle.runId)
     expect(d.get(handle.runId)!.costUsd).toBeNull()
   })

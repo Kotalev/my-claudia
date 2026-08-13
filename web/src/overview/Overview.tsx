@@ -4,10 +4,12 @@ import { FolderPlus, Plug, X } from 'lucide-react'
 import type { LiveState } from '../shared/useLiveState.js'
 import { ProjectCard } from './ProjectCard.js'
 import { LiveBand } from './LiveBand.js'
+import { PermissionPrompts } from './PermissionPrompts.js'
 import { PlanLimitsBar } from './PlanLimits.js'
 import { SpendBar } from './SpendBar.js'
 import { NotifyButton } from './NotifyButton.js'
 import { AddProject } from './AddProject.js'
+import { SearchBox } from './SearchBox.js'
 import { registerPath } from './register.js'
 import { Page } from '../shared/Page.js'
 import { ErrorLine } from '../shared/ErrorLine.js'
@@ -36,7 +38,7 @@ export function Overview(
     }
   }
 
-  const { projects, sessions, connected, planLimits, spend, account } = live
+  const { projects, sessions, connected, planLimits, spend, account, permissions } = live
   // Live sessions already have a home in the band above, whether or not their
   // project was ever registered here.
   const unassigned = sessions.filter(s => s.projectId === null && s.live === null)
@@ -84,12 +86,17 @@ export function Overview(
         </div>
       </header>
 
+      <SearchBox onOpenSession={onOpenSession} />
+
       {(planLimits ?? spend) && (
         <div className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
           <PlanLimitsBar limits={planLimits} />
           <SpendBar spend={spend} />
         </div>
       )}
+
+      {/* Above the Live band: a prompt someone is blocked on outranks everything running. */}
+      <PermissionPrompts permissions={permissions} sessions={sessions} projects={projects} />
 
       <LiveBand sessions={sessions} projects={projects} onOpen={onOpenSession} onOpenProject={onOpenProject} />
 

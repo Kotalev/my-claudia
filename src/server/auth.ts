@@ -29,7 +29,7 @@ export function tokenMatches(provided: unknown, expected: string): boolean {
  * Claude Code owns. They already answer 200 to garbage by design. Health is
  * a liveness probe with nothing in it.
  */
-const EXEMPT_PATHS = new Set(['/api/hooks', '/api/statusline', '/api/health'])
+const EXEMPT_PATHS = new Set(['/api/hooks', '/api/hooks/permission', '/api/statusline', '/api/health'])
 
 export function requiresToken(url: string): boolean {
   const path = url.split('?', 1)[0]!
